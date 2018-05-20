@@ -1,6 +1,6 @@
 <?php
 
-namespace Pheye\Payment\Models;
+namespace Pheye\Payments\Models;
 
 use Illuminate\Database\Eloquent\Model;
 

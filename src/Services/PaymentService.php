@@ -1,8 +1,8 @@
 <?php
-namespace App\Services;
+namespace Pheye\Payments\Services;
 
 use Illuminate\Support\Collection;
-use App\Contracts\PaymentService as PaymentServiceContract;
+use Pheye\Payments\Contracts\PaymentService as PaymentServiceContract;
 use Log;
 use App\Plan;
 use App\Role;
@@ -43,7 +43,8 @@ class PaymentService implements PaymentServiceContract
     {
         $this->config = $config;
         $this->parameters = new Collection();
-        Stripe::setApiKey($this->config['stripe']['secret_key']);
+        // TODO: stripe的相关内容移到其他地方
+        /* Stripe::setApiKey($this->config['stripe']['secret_key']); */
         $this->setParameter(PaymentService::PARAMETER_TAGS, ['default']);
         /* $this->setParameter(PaymentService::PARAMETER_SYNC_RANGE, ['start' => '2017-06-07 14:15:12', 'end' => null]); */
     }

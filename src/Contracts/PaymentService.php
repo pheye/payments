@@ -1,5 +1,5 @@
 <?php
-namespace App\Contracts;
+namespace Pheye\Payments\Contracts;
 
 use Illuminate\Support\Collection;
 

@@ -15,12 +15,12 @@ class CreatePlansTable extends Migration {
         /**
          * 对于我们大部分的系统，支付系统通常会引起角色的变化
          * 但这个不应该是属于支付包的功能，在支付系统中与角色关联
-         * 会产生过大的耦合
+         * 会产生过大的耦合。此处为了方便放了role_id
          */
         Schema::create('plans', function(Blueprint $table)
         {
             $table->increments('id');
-            /* $table->integer('role_id')->unsigned(); */
+            $table->integer('role_id')->unsigned();
             $table->string('name');
             $table->string('display_name');
             $table->string('desc');
@@ -30,7 +30,7 @@ class CreatePlansTable extends Migration {
             $table->integer('cycles');
             $table->float('amount');
             $table->string('currency');
-            $table->string('paypal_id');
+            $table->string('paypal_id')->nullable();
             $table->float('setup_fee')->nullable();
             $table->integer('display_order');
             $table->integer('delay_days')->default(0);
