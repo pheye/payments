@@ -3,6 +3,8 @@
 namespace Pheye\Payments;
 
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Foundation\AliasLoader;
+use Pheye\Payments\Facades\Payment as PaymentFacade;
 
 class PaymentServiceProvider extends ServiceProvider
 {
@@ -20,6 +22,7 @@ class PaymentServiceProvider extends ServiceProvider
         $this->publishes([__DIR__ . '/../publishable/resouces/views/' => resource_path('views')], 'voyager');
         // 发布seeds(只有加--tags才行)
         $this->publishes([__DIR__ . '/../publishable/database/seeds/' => database_path('seeds')], 'voyager');
+
     }
 
     /**
@@ -29,15 +32,12 @@ class PaymentServiceProvider extends ServiceProvider
      */
     public function register()
     {
-        // TODO:在这里包含路由并不是个好做法，需要考虑优化
-        include __DIR__ . '/../routes/web.php';
-
         $this->app->singleton(Contracts\PaymentService::class, function() {
             // 配置应该由此处传入，以便达到解耦以及多个PaymentService实例共用的目的
             return new Services\PaymentService(config('payment'));
         });
         // TODO:这里不应该使用app.service.payment
-        $this->app->singleton('app.service.payment', function() {
+        $this->app->singleton('payment', function() {
             return app(Contracts\PaymentService::class);
         });
 
@@ -74,11 +74,11 @@ class PaymentServiceProvider extends ServiceProvider
                         'config_path' => $config->config['config_path']
                     ]);
             }
-            $payumBuilder->addGateway('stripe',[
-                    'factory' => 'stripe_js',
-                    'publishable_key' => env('STRIPE_PUBLISHABLE_KEY'),
-                    'secret_key' => env('STRIPE_SECRET_KEY')
-                ]);
+            /* $payumBuilder->addGateway('stripe',[ */
+            /*         'factory' => 'stripe_js', */
+            /*         'publishable_key' => env('STRIPE_PUBLISHABLE_KEY'), */
+            /*         'secret_key' => env('STRIPE_SECRET_KEY') */
+            /*     ]); */
         });
 
     }

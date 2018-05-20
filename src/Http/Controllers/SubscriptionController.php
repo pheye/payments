@@ -1,8 +1,7 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace Pheye\Payments\Http\Controllers;
 
-use Braintree\ClientToken;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Input;
 use Illuminate\Support\Facades\Auth;
@@ -22,14 +21,14 @@ use Payum\Core\Request\GetHumanStatus;
 use Payum\Core\Model\CreditCard;
 use Payum\Core\Model\Payment;
 use App\Payment as OurPayment;
-use App\Contracts\PaymentService;
+use Pheye\Payments\Contracts\PaymentService;
 use App\Jobs\SyncPaymentsJob;
 use App\Jobs\SyncSubscriptionsJob;
 use App\Jobs\LogAction;
 use GuzzleHttp\Client;
 use App\Jobs\SendUserMail;
 use App\Jobs\SendUnsubscribeMail;
-use App\GatewayConfig;
+use Pheye\Payments\Models\GatewayConfig;
 use App\Exceptions\BusinessErrorException;
 use App\Events\PayedEvent;
 use Voyager;

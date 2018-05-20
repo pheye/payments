@@ -1053,4 +1053,9 @@ class PaymentService implements PaymentServiceContract
         $this->log("download invoice file ,file name is $fileName,download url is $url", PaymentService::LOG_INFO);
         return response()->download($url, $fileName);
     }
+
+    public function routes()
+    {
+        include __DIR__ . '/../../routes/payment.php';
+    }
 }
