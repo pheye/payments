@@ -712,9 +712,9 @@ class SubscriptionController extends PayumController
         $MD5sign = strtoupper(md5($MD5src));
         if ($MD5sign != $MD5info) 
             throw new \Exception('Verify MAC Failed!');
-        /* if ($Status != 1) { */
-        /*     throw new \Exception("$OrderID Failed:$Status, $Code"); */    
-        /* } */
+        if ($Status != 1) {
+            throw new \Exception("$OrderID Failed:$Status, $Code");    
+        }
         $user = Auth::user();
 
         $subscription->quantity = 1;
