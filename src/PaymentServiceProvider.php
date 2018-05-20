@@ -16,11 +16,13 @@ class PaymentServiceProvider extends ServiceProvider
      */
     public function boot()
     {
-        $this->loadMigrationsFrom(__DIR__ . '/../publishable/database/migrations');
         // 发布配置
         $this->publishes([__DIR__ . '/../publishable/config/payment.php' => config_path('payment.php')]);
         // 发布视图
         $this->publishes([__DIR__ . '/../publishable/resouces/views/' => resource_path('views')], 'voyager');
+
+        // 发布迁移
+        $this->publishes([__DIR__ . '/../publishable/database/migrations' => database_path('migrations')]);
         // 发布seeds(只有加--tags才行)
         $this->publishes([__DIR__ . '/../publishable/database/seeds/' => database_path('seeds')], 'voyager');
 
