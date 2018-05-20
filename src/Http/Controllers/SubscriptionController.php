@@ -33,7 +33,7 @@ use App\Exceptions\BusinessErrorException;
 use Pheye\Payments\Events\PayedEvent;
 use Voyager;
 
-final class SubscriptionController extends PayumController
+class SubscriptionController extends PayumController
 {
     private $paymentService;
 
