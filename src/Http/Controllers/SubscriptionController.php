@@ -20,7 +20,7 @@ use Payum\LaravelPackage\Controller\PayumController;
 use Payum\Core\Request\GetHumanStatus;
 use Payum\Core\Model\CreditCard;
 use Payum\Core\Model\Payment;
-use App\Payment as OurPayment;
+use Pheye\Payments\Models\Payment as OurPayment;
 use Pheye\Payments\Contracts\PaymentService;
 use App\Jobs\SyncPaymentsJob;
 use App\Jobs\SyncSubscriptionsJob;
@@ -30,7 +30,7 @@ use App\Jobs\SendUserMail;
 use App\Jobs\SendUnsubscribeMail;
 use Pheye\Payments\Models\GatewayConfig;
 use App\Exceptions\BusinessErrorException;
-use App\Events\PayedEvent;
+use Pheye\Payments\Events\PayedEvent;
 use Voyager;
 
 final class SubscriptionController extends PayumController
@@ -500,12 +500,12 @@ final class SubscriptionController extends PayumController
             throw new BusinessErrorException('pay failed, please try again <a href="/pricing">Back</a>, or mail to support@onlineadspyer.com');
         }
 
-        if (\App\Payment::where('number', $detail['TRANSACTIONID'])->count() > 0) {
-            return redirect(Voyager::setting('payed_redirect'));
+        if (OurPayment::where('number', $detail['TRANSACTIONID'])->count() > 0) {
+            return redirect(Voyager::setting('payed_redirect') ? : '/');
         }
         $user = Auth::user();
         $subscription = $user->subscriptions()->where('status', Subscription::STATE_CREATED)->first();
-        $subscription->agreement_id = '';
+        //$subscription->agreement_id = '';
         $subscription->quantity = 1;
         $subscription->status = Subscription::STATE_PAYED;
         $subscription->remote_status = '';
@@ -516,7 +516,7 @@ final class SubscriptionController extends PayumController
         $subscription->user->subscription_id = $subscription->id;
         $subscription->user->save();
 
-        $payment = new \App\Payment();
+        $payment = new OurPayment();
         $payment->number = $detail['TRANSACTIONID'];
         $payment->description = '';
         $payment->client_id = $user->id;
@@ -525,7 +525,7 @@ final class SubscriptionController extends PayumController
         $payment->currency = $detail['PAYMENTINFO_0_CURRENCYCODE'];
         $payment->details = $detail;
         $payment->buyer_email = $detail['EMAIL'];
-        $payment->status = \App\Payment::STATE_COMPLETED;
+        $payment->status = OurPayment::STATE_COMPLETED;
         $payment->created_at = Carbon::now();
 
         $payment->subscription()->associate($subscription);
@@ -534,7 +534,7 @@ final class SubscriptionController extends PayumController
         Log::info('pay detail:', ['detail' => $detail]);
 
         event(new PayedEvent($payment));
-        $redirectUrl = Voyager::setting('payed_redirect');
+        $redirectUrl = Voyager::setting('payed_redirect') ? : '/';
         if ($request->expectsJson()) {
             return response()->json(['redirect' => $redirectUrl]);
         }
