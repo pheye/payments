@@ -100,4 +100,9 @@ POST /pay
 - `plan_name`: `plan`的名称
 
 
+# 支付的网关类型
 
+```
+paypal_express_checkout Paypal EC
+zhongwaibao 中外宝
+```

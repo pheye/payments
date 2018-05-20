@@ -19,13 +19,15 @@ class PaymentServiceProvider extends ServiceProvider
         // 发布配置
         $this->publishes([__DIR__ . '/../publishable/config/payment.php' => config_path('payment.php')]);
         // 发布视图
-        $this->publishes([__DIR__ . '/../publishable/resouces/views/' => resource_path('views')], 'voyager');
+        $this->publishes([__DIR__ . '/../publishable/resources/views/' => resource_path('views')], 'voyager');
 
         // 发布迁移
         $this->publishes([__DIR__ . '/../publishable/database/migrations' => database_path('migrations')]);
         // 发布seeds(只有加--tags才行)
         $this->publishes([__DIR__ . '/../publishable/database/seeds/' => database_path('seeds')], 'voyager');
 
+        // 注册扩展包视图
+        $this->loadViewsFrom(__DIR__ . '/../resources/views', 'payment');
     }
 
     /**
@@ -84,6 +86,5 @@ class PaymentServiceProvider extends ServiceProvider
             /*         'secret_key' => env('STRIPE_SECRET_KEY') */
             /*     ]); */
         });
-
     }
 }

@@ -109,6 +109,7 @@ class SubscriptionController extends PayumController
      * 如果没有指明支付类型，就使用默认网关
      * @param  plan_name 购买的计划名称
      * @param  coupon coupon值
+     * @param  gateway_name 网关名称
      * @param  skype @deprecated
      */
     public function pay(Request $req)
@@ -143,7 +144,11 @@ class SubscriptionController extends PayumController
                 return redirect()->back()->withErrors(['message' => 'You have used the coupon']);
             }
         }
-        $gatewayConfig = GatewayConfig::where('gateway_name', Voyager::setting('current_gateway') ? : config('payment.current_gateway'))->first();
+        if ($req->has('gateway_name')) {
+            $gatewayConfig = GatewayConfig::where('gateway_name', $req->gateway_name)->first();
+        } else {
+            $gatewayConfig = GatewayConfig::where('gateway_name', Voyager::setting('current_gateway') ? : config('payment.current_gateway'))->first();
+        }
         if (!$gatewayConfig) {
             // TODO: 统一定向到某个错误页面或者前端需要知道如何读取Flash数据
             return 'No Gateway Config';
@@ -168,7 +173,9 @@ class SubscriptionController extends PayumController
             return $this->payByStripe($req, $plan, $user, $coupon);
         }
         if ($gatewayConfig->factory_name == GatewayConfig::FACTORY_PAYPAL_EXPRESS_CHECKOUT) {
-            return $this->preparePaypalCheckout($req, $subscription->setup_fee);    
+            return $this->preparePaypalCheckout($req, $subscription->setup_fee);
+        } else if ($gatewayConfig->factory_name == GatewayConfig::FACTORY_ZHONGWAIBAO) {
+            return $this->payByZhongwaibao($req, $plan, $subscription, $gatewayConfig);
         }
         $service = $this->paymentService->getRawService(PaymentService::GATEWAY_PAYPAL);
         $approvalUrl = $service->createPayment($plan, $coupon ? ['setup_fee' => $plan->amount - $discount] : null);
@@ -476,6 +483,8 @@ class SubscriptionController extends PayumController
                 return $this->prepareStripeCheckout($request);
             case 'scoinpay':
                 return view('subscriptions.scoinpay');
+            case 'zhongwaibao':
+                return view('payment::subscriptions.zhongwaibao');
         }
 
         return 'unknown payment method';
@@ -559,7 +568,7 @@ class SubscriptionController extends PayumController
             $subscription->agreement_id = $details['local']['customer']['subscriptions']['data'][0]['id'];
             $subscription->quantity = 1;
             /* $subscription->setup_fee = $details['amount'] / 100; */
-	    $subscription->save();
+        $subscription->save();
 
 
             $ourPayment = new OurPayment();
@@ -639,5 +648,108 @@ class SubscriptionController extends PayumController
         $refund = $this->paymentService->requestRefund($payment);
         
         return ['code' => 0, 'desc' => 'success'];
+    }
+
+    private function curlZhongwaibao($url, $data)
+    {
+        if (empty($url)) return false;
+
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_POST, 1);
+        curl_setopt($ch, CURLOPT_HEADER, 0);
+        curl_setopt($ch ,CURLOPT_RETURNTRANSFER, 1);
+        curl_setopt($ch ,CURLOPT_POSTFIELDS, $data);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 120);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+        $result = curl_exec($ch);
+        curl_close($ch);
+
+        return $result;
+    }
+
+    /**
+     * 使用中外宝支付
+     */
+    public function payByZhongwaibao(Request $req, $plan, Subscription $subscription, GatewayConfig $gatewayConfig)
+    {
+        $config = $gatewayConfig->config;
+        $data = $req->except(['gateway_name', 'plan_name', 'coupon']);
+        $data['MerchantID'] = $config['merchantID'];
+        $data['TransNo']    = $config['transNo'];
+        $data['OrderID']    = $config['transNo'] . '-' . date("YmdHis",time());
+        $data['Currency']   = $plan['currency'];    
+        $data['Amount']     = $plan['amount'];
+        $data['MD5info']    = strtoupper(md5($config['md5key']. $config['merchantID']. $config['transNo']. $data['OrderID'] . $data['Currency'] . $data['Amount']));                      
+        $data['Version']    = 'V4.51';
+        // 客户端信息
+        // TODO:更新网址信息
+        $data['URL']            = 'www.onlineadspyer.com';//$req->server('HTTP_HOST');
+        $data['IP']             = $req->server('REMOTE_ADDR');
+        $data['UserAgent']      = $req->server('HTTP_USER_AGENT');
+        $data['AcceptLanguage'] = $req->server('HTTP_ACCEPT_LANGUAGE');
+        $data['McCookie']       = $_COOKIE['McCookie'];
+        /* $data['csid']           = $_POST['csid']; */
+        $data['Products']       = $plan->display_name;
+        // 提交数据到网关                            
+        $result = json_decode($this->curlZhongwaibao('http://wru8zys.zwbpay.com/payment/interface/do', $data), true);                                                                                     
+        if (!is_array($result)) {                    
+            $result = json_decode($this->curlZhongwaibao('http://wru8zys.gtopay.com/payment/interface/do', $data), true);
+        }    
+        if (!is_array($result)) die('Error Code: 2001');                                          
+        if ($result['error'] == true) {              
+            throw new \Exception('Error Code: ' . $result['code']);   
+        }                                      
+        $OrderID  = $result['order']['OrderID']; 
+        $Currency = $result['order']['Currency'];
+        $Amount   = $result['order']['Amount'];  
+        $Code     = $result['order']['Code'];    
+        $Status   = $result['order']['Status'];  
+        $MD5info  = $result['order']['MD5info'];
+
+        $MD5src  = $config['md5key'] . $config['transNo'] . $OrderID . $Currency . $Amount . $Code . $Status;
+        $MD5sign = strtoupper(md5($MD5src));
+        if ($MD5sign != $MD5info) 
+            throw new \Exception('Verify MAC Failed!');
+        /* if ($Status != 1) { */
+        /*     throw new \Exception("$OrderID Failed:$Status, $Code"); */    
+        /* } */
+        $user = Auth::user();
+
+        $subscription->quantity = 1;
+        $subscription->status = Subscription::STATE_PAYED;
+        $subscription->remote_status = '';
+        $subscription->buyer_email = $data['BEmail'];
+        // TODO:总是按月，应该做得更细致些
+        $subscription->next_billing_date = Carbon::now()->addMonth();
+        $subscription->save();
+        $subscription->user->subscription_id = $subscription->id;
+        $subscription->user->save();
+
+        // 成功需要创建Payment之类的订单
+        $payment = new OurPayment();
+        $payment->number = $OrderID;
+        $payment->description = "$Status $Code";
+        $payment->client_id = $user->id;
+        $payment->client_email = $user->email;
+        $payment->amount = $Amount;
+        $payment->currency = $Currency;
+        $payment->details = $data;
+        $payment->buyer_email = $data['BEmail'];
+        $payment->status = OurPayment::STATE_COMPLETED;
+        $payment->created_at = Carbon::now();
+
+        $payment->subscription()->associate($subscription);
+        $payment->save();
+
+        Log::info('pay detail:', ['detail' => $data]);
+
+        event(new PayedEvent($payment));
+        $redirectUrl = Voyager::setting('payed_redirect') ? : '/';
+        if ($req->expectsJson()) {
+            return response()->json(['redirect' => $redirectUrl]);
+        }
+        return redirect($redirectUrl);
     }
 }
