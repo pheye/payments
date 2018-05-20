@@ -8,13 +8,13 @@ use Illuminate\Support\Facades\Auth;
 use Log;
 use App\User;
 use App\Role;
-use App\Plan;
-use App\Subscription;
+use Pheye\Payments\Models\Plan;
+use Pheye\Payments\Models\Subscription;
 use App\Webhook;
-use App\Coupon;
-use App\Refund;
+use Pheye\Payments\Models\Coupon;
+use Pheye\Payments\Models\Refund;
 use App\ActionLog;
-use App\Services\PaypalService;
+use Pheye\Payments\Services\PaypalService;
 use Carbon\Carbon;
 use Payum\LaravelPackage\Controller\PayumController;
 use Payum\Core\Request\GetHumanStatus;
@@ -107,7 +107,9 @@ final class SubscriptionController extends PayumController
      * 支付表单提示的处理
      *
      * 如果没有指明支付类型，就使用默认网关
-     * @warning 如果用户已经订阅了，不允许创建同样的订阅
+     * @param  plan_name 购买的计划名称
+     * @param  coupon coupon值
+     * @param  skype @deprecated
      */
     public function pay(Request $req)
     {
@@ -141,7 +143,7 @@ final class SubscriptionController extends PayumController
                 return redirect()->back()->withErrors(['message' => 'You have used the coupon']);
             }
         }
-        $gatewayConfig = GatewayConfig::where('gateway_name', Voyager::setting('current_gateway'))->first();
+        $gatewayConfig = GatewayConfig::where('gateway_name', Voyager::setting('current_gateway') ? : config('payment.current_gateway'))->first();
         if (!$gatewayConfig) {
             // TODO: 统一定向到某个错误页面或者前端需要知道如何读取Flash数据
             return 'No Gateway Config';
@@ -151,13 +153,11 @@ final class SubscriptionController extends PayumController
         $subscription = new Subscription();
         $subscription->user_id = $user->id;
         $subscription->plan = $plan->name;
-        /* $subscription->agreement_id = $queryArr['token']; */
         $subscription->quantity = 0;
         $subscription->coupon_id = $coupon ? $coupon->id : 0;
         $subscription->setup_fee = $plan->amount - $discount;
         $subscription->frequency = $plan->frequency;
         $subscription->frequency_interval = $plan->frequency_interval;
-        $subscription->gateway = PaymentService::GATEWAY_STRIPE;// TODO:删除，将用gateway_id，以支持多网关
         $subscription->gateway_id = $gatewayConfig->id;
         $subscription->status = Subscription::STATE_CREATED;
         $subscription->tag = Subscription::TAG_DEFAULT;
@@ -182,7 +182,6 @@ final class SubscriptionController extends PayumController
         }
 
         $subscription->agreement_id = $queryArr['token'];
-        $subscription->gateway = PaymentService::GATEWAY_PAYPAL;
         $subscription->save();
         return redirect($approvalUrl);
     }
@@ -413,7 +412,7 @@ final class SubscriptionController extends PayumController
         $details['PAYMENTREQUEST_0_CURRENCYCODE'] = 'USD';
         $details['PAYMENTREQUEST_0_AMT'] = $amount;
         $storage->update($details);
-        $captureToken = $this->getPayum()->getTokenFactory()->createCaptureToken(Voyager::setting('current_gateway'), $details, 'paypal_done');
+        $captureToken = $this->getPayum()->getTokenFactory()->createCaptureToken(Voyager::setting('current_gateway') ? : config('payment.current_gateway'), $details, 'paypal_done');
         return redirect($captureToken->getTargetUrl());
     }
 

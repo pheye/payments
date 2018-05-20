@@ -17,7 +17,7 @@ class CreateSubscriptionsTable extends Migration {
             $table->increments('id');
             $table->integer('user_id')->unsigned()->index('subscriptions_user_id_foreign');
             $table->string('plan');
-            $table->string('agreement_id');
+            $table->string('agreement_id')->nullable();
             $table->integer('quantity');
             $table->dateTime('trial_ends_at')->nullable();
             $table->dateTime('ends_at')->nullable();

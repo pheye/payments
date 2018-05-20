@@ -16,5 +16,6 @@ return [
     ],
     'invoice' => [
         'save_path' => env('INVOICE_SAVE_PATH')
-    ]
+    ],
+    'current_gateway' => env('CURRENT_GATEWAY', 'paypal_ec')
 ];

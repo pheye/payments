@@ -2,6 +2,7 @@
 
 namespace Pheye\Payments;
 
+use Pheye\Payments\Models\GatewayConfig;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Foundation\AliasLoader;
 use Pheye\Payments\Facades\Payment as PaymentFacade;
@@ -32,6 +33,7 @@ class PaymentServiceProvider extends ServiceProvider
      */
     public function register()
     {
+        $this->app->register('Payum\LaravelPackage\PayumServiceProvider');
         $this->app->singleton(Contracts\PaymentService::class, function() {
             // 配置应该由此处传入，以便达到解耦以及多个PaymentService实例共用的目的
             return new Services\PaymentService(config('payment'));
