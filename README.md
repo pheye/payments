@@ -43,6 +43,28 @@ php artisan db:seed --class=VoyagerAdminSeeder
 
 至此，基本配置就完成了。
 
+## 额外的配置
+1.编辑`app/User.php`:
+
+```
+<?php
+ 
+namespace App;
+use Pheye\Payments\Traits\Paymentable; 
+
+class User extends Authenticatable           
+{                                            
+    use Paymentable;                                             
+    // ...
+} 
+```
+
+2.开放路由（这一步不推荐直接使用，仅做参考，建议根据实际需要添加对应路由），编辑`routes/web.php`:
+
+```
+PaymentService::routes();
+```
+
 # 用法
 ## 后台
 1.价格计划中至少要有一项，并且价格不为0。如下图：
