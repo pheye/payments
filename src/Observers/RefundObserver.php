@@ -2,8 +2,8 @@
 
 namespace Pheye\Payments\Observers;
 
-use Pheye\Payments\Model\Payment;
-use Pheye\Payments\Model\Refund;
+use Pheye\Payments\Models\Payment;
+use Pheye\Payments\Models\Refund;
 
 class RefundObserver
 {

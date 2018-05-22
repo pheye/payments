@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Services;
+namespace Pheye\Payments\Services;
 
 use PayPal\Api\ChargeModel;
 use PayPal\Api\Currency;

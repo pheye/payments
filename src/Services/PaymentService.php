@@ -1058,4 +1058,9 @@ class PaymentService implements PaymentServiceContract
     {
         include __DIR__ . '/../../routes/payment.php';
     }
+
+    public function adminRoutes()
+    {
+        include __DIR__ . '/../../routes/admin.php';
+    }
 }
