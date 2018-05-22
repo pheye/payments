@@ -2,6 +2,9 @@
 namespace Pheye\Payments\Contracts;
 
 use Illuminate\Support\Collection;
+use Pheye\Payments\Models\Subscription;
+use Pheye\Payments\Models\Payment;
+use Pheye\Payments\Models\Refund;
 
 /**
  * Bigbigads的统一支付服务
@@ -80,7 +83,7 @@ interface PaymentService
      * 根据订单切换订阅的状态，切换用户当前的计划。用户的权限会被重置，同时过期时间将被设置。
      * @remark 该功能纳入支付服务是否合适的有待进一步分析设计
      */
-    public function handlePayment(\App\Payment $payment);
+    public function handlePayment(Payment $payment);
 
     /**
      * 获取指定支付网关的服务
@@ -93,7 +96,7 @@ interface PaymentService
      * @param Subscription $subscription
      * @return boolean
      */
-    public function cancel(\App\Subscription $subscription);
+    public function cancel(Subscription $subscription);
 
 
     /**
@@ -101,12 +104,12 @@ interface PaymentService
      * @param \App\Payment $payment 支付订单
      * @param $amount 如果为0则全额退款，否则按照$amount的金额退款
      */
-    public function requestRefund(\App\Payment $payment, $amount = 0);
+    public function requestRefund(Payment $payment, $amount = 0);
 
     /**
      * 退款
      * @param \App\Refund $refund 退款记录
      * @return boolean
      */
-    public function refund(\App\Refund $refund);
+    public function refund(Refund $refund);
 }
