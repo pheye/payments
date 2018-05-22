@@ -699,7 +699,7 @@ class PaymentService implements PaymentServiceContract
      *
      * @todo stripe退款
      */
-    public function refund(\App\Refund $refund)
+    public function refund(Refund $refund)
     {
         $amount = $refund->amount;
         $payment = $refund->payment;

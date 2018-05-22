@@ -28,6 +28,8 @@ class PaymentServiceProvider extends ServiceProvider
 
         // 注册扩展包视图
         $this->loadViewsFrom(__DIR__ . '/../resources/views', 'payment');
+
+        \Pheye\Payments\Models\Refund::observe(\Pheye\Payments\Observers\RefundObserver::class);
     }
 
     /**
