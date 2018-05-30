@@ -18,11 +18,12 @@ use Illuminate\Console\Command;
 use Carbon\Carbon;
 use Cache;
 use App\Jobs\SyncPaymentsJob;
-use App\Notifications\RefundRequestNotification;
-use App\Notifications\CancelSubOnSyncNotification;
+use Pheye\Payments\Notifications\RefundRequestNotification;
+use Pheye\Payments\Notifications\CancelSubOnSyncNotification;
 use App\Exceptions\GenericException;
 use Mpdf\Mpdf;
 use Storage;
+use Voyager;
 
 class PaymentService implements PaymentServiceContract
 {
@@ -66,19 +67,33 @@ class PaymentService implements PaymentServiceContract
     {
         $this->logger = $logger;
     }
-    
-    protected function getPaypalService()
+
+    /**
+     * 获取网关的顺序：
+     * 1. Voyager::setting('current_gateway')是否是Paypal REST网关
+     * 2. 不然就获取第1个Paypal REST配置
+     * 3. 不然就黑夜`config/payment.php`的配置
+     */
+    protected function getPaypalService($config = null, $force = false)
     {
-        if (!$this->paypalService) {
-            $this->paypalService = new PaypalService($this->config['paypal']);
+        if (!$this->paypalService || $force) {
+            if (!$config) {
+                $gatewayConfig = GatewayConfig::where('gateway_name', Voyager::setting('current_gateway'))->first();
+                if (!$gatewayConfig) {
+                    $gatewayConfig = GatewayConfig::where('factory_name', GatewayConfig::FACTORY_PAYPAL_REST)->first();
+                }
+                if ($gatewayConfig)
+                    $config = $gatewayConfig->config;
+            }
+            $this->paypalService = new PaypalService($config ? : $this->config['paypal']);
         }
         return $this->paypalService;
     }
 
-    public function getRawService($gateway)
+    public function getRawService($gateway, $config = null)
     {
         if ($gateway == PaymentService::GATEWAY_PAYPAL) {
-            return $this->getPaypalService();
+            return $this->getPaypalService($config);
         }
         return false;
     }
@@ -173,54 +188,60 @@ class PaymentService implements PaymentServiceContract
         }
 
 
+        // 往所有Paypal REST的网关同步计划
         if ($isAll || $gateways->contains(PaymentService::GATEWAY_PAYPAL)) {
             $this->log("sync to paypal, this will cost time, PLEASE WAITING...");
-            $service = new PaypalService($this->config['paypal']);
-            $plans->each(
-                function ($plan, $key) use ($service) {
-                    $this->log("Plan {$plan->name} is creating");
-                    //Paypal如果要建立TRIAL用户，过程比较繁琐，这里直接跳过
-                    if ($plan->amount == 0) {
-                        $this->log("Plan {$plan->name}: ignore free plan in paypal");
-                        return;
-                    }
-                    $paypalPlan = null;
-                    if ($plan->paypal_id) {
-                        $paypalPlan = $service->getPlan($plan->paypal_id);
-                    }
-                    if ($paypalPlan) {
-                        $merchantPreference = $paypalPlan->getMerchantPreferences();
-                        $paymentDef = $paypalPlan->getPaymentDefinitions();
-                        $paymentDef = $paymentDef[0];
-                        $money = $paymentDef->getAmount();
-                        $paypalPlanDesc = [
-                            'name' => $paypalPlan->getName(),
-                            'display_name' => $paypalPlan->getDescription(),
-                            'amount' => $money->getValue(),
-                            'currency' => $money->getCurrency(),
-                            'frequency' => $paymentDef->getFrequency(),
-                            'frequency_interval' => $paymentDef->getFrequencyInterval()
-                        ];
-                        $isDirty = false;
-                        foreach ($paypalPlanDesc as $key => $val) {
-                            if (strtolower($plan[$key]) != strtolower($val)) {
-                                $this->log("remote paypal diff with local ({$key}):{$plan[$key]} $val");
-                                $service->deletePlan($plan->paypal_id);
-                                $isDirty = true;
-                                break;
-                            }
-                        }
-                        if (!$isDirty) {
-                            $this->log("{$plan->name}已经创建过且无修改,忽略");
+            
+            $gatewayConfigs = GatewayConfig::where('factory_name', GatewayConfig::FACTORY_PAYPAL_REST)->get();
+            foreach ($gatewayConfigs as $k => $gatewayConfig) {
+                $service = $this->getPaypalService($gatewayConfig->config, true);
+                $this->log('Gateway Name:' . $gatewayConfig->gateway_name, PaymentService::LOG_INFO);
+                $plans->each(
+                    function ($plan, $key) use ($service) {
+                        $this->log("Plan {$plan->name} is creating");
+                        //Paypal如果要建立TRIAL用户，过程比较繁琐，这里直接跳过
+                        if ($plan->amount == 0) {
+                            $this->log("Plan {$plan->name}: ignore free plan in paypal");
                             return;
                         }
+                        $paypalPlan = null;
+                        if ($plan->paypal_id) {
+                            $paypalPlan = $service->getPlan($plan->paypal_id);
+                        }
+                        if ($paypalPlan) {
+                            $merchantPreference = $paypalPlan->getMerchantPreferences();
+                            $paymentDef = $paypalPlan->getPaymentDefinitions();
+                            $paymentDef = $paymentDef[0];
+                            $money = $paymentDef->getAmount();
+                            $paypalPlanDesc = [
+                                'name' => $paypalPlan->getName(),
+                                'display_name' => $paypalPlan->getDescription(),
+                                'amount' => $money->getValue(),
+                                'currency' => $money->getCurrency(),
+                                'frequency' => $paymentDef->getFrequency(),
+                                'frequency_interval' => $paymentDef->getFrequencyInterval()
+                            ];
+                            $isDirty = false;
+                            foreach ($paypalPlanDesc as $key => $val) {
+                                if (strtolower($plan[$key]) != strtolower($val)) {
+                                    $this->log("remote paypal diff with local ({$key}):{$plan[$key]} $val");
+                                    $service->deletePlan($plan->paypal_id);
+                                    $isDirty = true;
+                                    break;
+                                }
+                            }
+                            if (!$isDirty) {
+                                $this->log("{$plan->name}已经创建过且无修改,忽略");
+                                return;
+                            }
+                        }
+                        $output = $service->createPlan($plan);
+                        $plan->paypal_id = $output->getId();
+                        $plan->save();
+                        $this->log("{$plan->name} created for paypal");
                     }
-                    $output = $service->createPlan($plan);
-                    $plan->paypal_id = $output->getId();
-                    $plan->save();
-                    $this->log("{$plan->name} created for paypal");
-                }
-            );
+                );
+            }
             $this->log("paypal sync done");
         }
     }
@@ -360,11 +381,14 @@ class PaymentService implements PaymentServiceContract
             $subscriptions = [$subscription];
             $force = true;
         } else {
-            $subscriptions = Subscription::where('quantity', '>', 0)->where('gateway', 'paypal')->whereIn('tag', $tags)->get();
+            $subscriptions = Subscription::where('quantity', '>', 0)->whereIn('tag', $tags)->get();
             $force = $this->getParameter(PaymentService::PARAMETER_FORCE);
         }
         $service = $this->getPaypalService();
         foreach ($subscriptions as $item) {
+            if ($item->gatewayConfig->factory_name != GatewayConfig::FACTORY_PAYPAL_REST) {
+                continue;
+            }
             if (!in_array($item->tag, $tags)) {
                 $this->log("{$item->agreement_id} tag is {$item->tag}, not in tags, skip");
                 continue;
@@ -902,10 +926,10 @@ class PaymentService implements PaymentServiceContract
             // 交易的状态不对或者查不到交易
             throw new GenericException($this, "payment is invalid on use transaction id: $transactionId,maybe status is not completed or isn't exists");
         }
-        if ($payment->gateway != PaymentService::GATEWAY_PAYPAL_EC) {
-            //暂时不处理非paypal订单
-            throw new GenericException($this, "this payment(transaction id: $transactionId) is stripe payment,ignore");
-        }
+        /* if ($payment->gateway != PaymentService::GATEWAY_PAYPAL_EC) { */
+        /*     //暂时不处理非paypal订单 */
+        /*     throw new GenericException($this, "this payment(transaction id: $transactionId) is stripe payment,ignore"); */
+        /* } */
         if (!empty($payment->invoice_id) && !$force) {
             // 该交易的invoice_id不为空，则已经生成过
             throw new GenericException($this, "cannot generate this invoice with transaction id: $transactionId because it was generated.");
@@ -925,8 +949,8 @@ class PaymentService implements PaymentServiceContract
         $data->method = ucfirst($payment->gateway);// Paypal / Stripe;
         // details已经通过casts进行了属性转化，不需要再json_decode
         $details = $payment->details;//paypal的details全部都是string类型
-        $data->paymentAccount = $details['EMAIL'];// payment account
-        $time = Carbon::parse($details['TIMESTAMP'])->setTimezone(Carbon::now()->tz);// 需要转换时区
+        $data->paymentAccount = $payment->buyer_email;// payment account
+        $time = Carbon::parse($payment->created)->setTimezone(Carbon::now()->tz);// 需要转换时区
 
         // 目标时间格式 1 September 2017 at 5:16:04 p.m. HKT
         $yearAndMonth = $time->format("j F Y");

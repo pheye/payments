@@ -16,6 +16,9 @@ use Pheye\Payments\Models\Refund;
 use App\ActionLog;
 use Pheye\Payments\Services\PaypalService;
 use Carbon\Carbon;
+use Payum\Core\Request\Sync;
+use Payum\Paypal\ExpressCheckout\Nvp\Api;
+use Payum\Paypal\ExpressCheckout\Nvp\Request\Api\CreateRecurringPaymentProfile;
 use Payum\LaravelPackage\Controller\PayumController;
 use Payum\Core\Request\GetHumanStatus;
 use Payum\Core\Model\CreditCard;
@@ -32,6 +35,7 @@ use Pheye\Payments\Models\GatewayConfig;
 use App\Exceptions\BusinessErrorException;
 use Pheye\Payments\Events\PayedEvent;
 use Voyager;
+use Illuminate\Support\Collection;
 
 class SubscriptionController extends PayumController
 {
@@ -117,7 +121,7 @@ class SubscriptionController extends PayumController
         // check that we have nonce and plan in the incoming HTTP request
         if (!$req->has('planid') && !$req->has('plan_name')) {
             // TODO:统一处理
-            return "invalid request";
+            throw new \ErrorException("invalid request");
             /* return redirect()->back()->withErrors(['desc' => 'Invalid request']); */
         }
         if ($req->has('planid')) {
@@ -129,7 +133,7 @@ class SubscriptionController extends PayumController
         $coupon = null;
         $discount = 0;
         // 如果存在对应的优惠券就使用
-        if ($req->has('coupon')) {
+        if ($req->has('coupon') && $req->coupon) {
             $coupon = $this->checkCoupon($req->coupon, $plan->amount);
             if (!$coupon) {
                 return redirect()->back()->withErrors(['message' => 'Invalid coupon']);
@@ -151,7 +155,7 @@ class SubscriptionController extends PayumController
         }
         if (!$gatewayConfig) {
             // TODO: 统一定向到某个错误页面或者前端需要知道如何读取Flash数据
-            return 'No Gateway Config';
+            throw new \ErrorException('No GatewayConfig');
         }
         // 创建一个新的订阅(是否要清除已有的未支付订阅呢？需要的，防止数据库被填满，由于Paypal的token可能还在生效，所以在onPay时要确保不能支付成功)
         Subscription::where('user_id', $user->id)->where('status', Subscription::STATE_CREATED)->delete();
@@ -173,7 +177,7 @@ class SubscriptionController extends PayumController
             return $this->payByStripe($req, $plan, $user, $coupon);
         }
         if ($gatewayConfig->factory_name == GatewayConfig::FACTORY_PAYPAL_EXPRESS_CHECKOUT) {
-            return $this->preparePaypalCheckout($req, $subscription->setup_fee);
+            return $this->preparePaypalCheckout($req, $subscription, $plan);    
         } else if ($gatewayConfig->factory_name == GatewayConfig::FACTORY_ZHONGWAIBAO) {
             return $this->payByZhongwaibao($req, $plan, $subscription, $gatewayConfig);
         }
@@ -280,7 +284,7 @@ class SubscriptionController extends PayumController
         if (!($subscription instanceof Subscription)) {
             abort(500, "no subscription found");
         }
-        $service = $this->paymentService->getRawService(PaymentService::GATEWAY_PAYPAL);
+        $service = $this->paymentService->getRawService(PaymentService::GATEWAY_PAYPAL, $subscription->gatewayConfig->config);
 
         $agreement = $service->onPay($request);
 
@@ -326,13 +330,6 @@ class SubscriptionController extends PayumController
         dispatch((new SyncPaymentsJob($subscription))->delay(Carbon::now()->addSeconds(30)));
 
         // 更改七日内的统计为guzzle 同步请求
-        try {
-            $domain = env('APP_URL');
-            $url = $domain . 'payStatistics.html';
-            $client = new Client();
-            $client->request('GET', $url);
-        } catch (\Exception $e) {
-        }
         return redirect(Voyager::setting('payed_redirect'));
     }
 
@@ -406,8 +403,9 @@ class SubscriptionController extends PayumController
     /**
      * Paypal Express Checkout
      */
-    protected function preparePaypalCheckout(Request $request, $amount = null)
+    protected function preparePaypalCheckout(Request $request, $subscription, $plan)
     {
+        $amount = $subscription->setup_fee;
         if (!$request->has('amount') && !$amount) {
             return "amount parameter is required";
         }
@@ -415,11 +413,25 @@ class SubscriptionController extends PayumController
             $amount = $request->amount;
         }
         $storage = $this->getPayum()->getStorage('Payum\Core\Model\ArrayObject');
-        $details = $storage->create();
-        $details['PAYMENTREQUEST_0_CURRENCYCODE'] = 'USD';
-        $details['PAYMENTREQUEST_0_AMT'] = $amount;
-        $storage->update($details);
-        $captureToken = $this->getPayum()->getTokenFactory()->createCaptureToken(Voyager::setting('current_gateway') ? : config('payment.current_gateway'), $details, 'paypal_done');
+        // 一次性付款
+        if ($request->has('onetime')) {
+            $details = $storage->create();
+            $details['PAYMENTREQUEST_0_CURRENCYCODE'] = 'USD';
+            $details['PAYMENTREQUEST_0_AMT'] = $amount;
+            $storage->update($details);
+            $captureToken = $this->getPayum()->getTokenFactory()->createCaptureToken(Voyager::setting('current_gateway'), $details, 'paypal_done');
+        } else {
+            $agreement = $storage->create();
+            $agreement['PAYMENTREQUEST_0_AMT'] = 0; // For an initial amount to be charged please add it here, eg $10 setup fee
+            $agreement['L_BILLINGTYPE0'] = Api::BILLINGTYPE_RECURRING_PAYMENTS;
+            $agreement['L_BILLINGAGREEMENTDESCRIPTION0'] = "Plan";
+            $agreement['NOSHIPPING'] = 1;
+            $storage->update($agreement);
+
+            $captureToken = $this->getPayum()->getTokenFactory()->createCaptureToken(Voyager::setting('current_gateway'), $agreement, 'paypal_capture');
+
+            $storage->update($agreement);
+        }
         return redirect($captureToken->getTargetUrl());
     }
 
@@ -540,8 +552,9 @@ class SubscriptionController extends PayumController
         $payment->subscription()->associate($subscription);
         $payment->save();
 
-        Log::info('pay detail:', ['detail' => $detail]);
+        $subscription->user->fixInfoByPayments();
 
+        dispatch(new \App\Jobs\GenerateInvoiceJob(new Collection([$payment])));//入参类型为Collection  
         event(new PayedEvent($payment));
         $redirectUrl = Voyager::setting('payed_redirect') ? : '/';
         if ($request->expectsJson()) {
@@ -674,8 +687,17 @@ class SubscriptionController extends PayumController
      */
     public function payByZhongwaibao(Request $req, $plan, Subscription $subscription, GatewayConfig $gatewayConfig)
     {
+        $user = Auth::user();
+        $credit = $user->credit()->first();
         $config = $gatewayConfig->config;
-        $data = $req->except(['gateway_name', 'plan_name', 'coupon']);
+        $data = $req->except(['gateway_name', 'plan_name', 'planid', 'coupon']);
+
+        
+        $creditCollection = new Collection($credit->toArray());
+        foreach ($creditCollection->except(['id', 'created_at', 'updated_at', 'user_id', 'CardNumber', 'CardMonth', 'CardYear', 'CardCvv']) as $key => $value) {
+            $data[$key] = $value;
+        }
+
         $data['MerchantID'] = $config['merchantID'];
         $data['TransNo']    = $config['transNo'];
         $data['OrderID']    = $config['transNo'] . '-' . date("YmdHis",time());
@@ -715,6 +737,14 @@ class SubscriptionController extends PayumController
         if ($Status != 1) {
             throw new \Exception("$OrderID Failed:$Status, $Code");    
         }
+
+        // 付款成功后，信用卡信息首先需要保存下来才能为后续的循环扣款做基础
+        $credit['CardNumber'] = $data['CardNumber'];
+        $credit['CardMonth'] = $data['CardMonth'];
+        $credit['CardYear'] = $data['CardYear'];
+        $credit['CardCvv'] = $data['CardCvv'];
+        $credit->save();
+
         $user = Auth::user();
 
         $subscription->quantity = 1;
@@ -745,11 +775,49 @@ class SubscriptionController extends PayumController
 
         Log::info('pay detail:', ['detail' => $data]);
 
+        $subscription->user->fixInfoByPayments();
+
+        dispatch(new \App\Jobs\GenerateInvoiceJob(new Collection([$payment])));//入参类型为Collection  
         event(new PayedEvent($payment));
         $redirectUrl = Voyager::setting('payed_redirect') ? : '/';
         if ($req->expectsJson()) {
             return response()->json(['redirect' => $redirectUrl]);
         }
         return redirect($redirectUrl);
+    }
+
+    /**
+     * Paypal循环扣款签约
+     */
+    public function onPaypalCapture(Request $request)
+    {
+        /** @var \Payum\Core\Payum $payum */
+        $payum = $this->getPayum();
+        $token = $payum->getHttpRequestVerifier()->verify($request);
+        $payum->getHttpRequestVerifier()->invalidate($token);
+        $gateway = $payum->getGateway($token->getGatewayName());
+        $agreementStatus = new GetHumanStatus($token);
+        $gateway->execute($agreementStatus);
+
+        if (!$agreementStatus->isCaptured()) {
+            abort(500, 'HTTP/1.1 400 Bad Request');
+        }
+        $agreement = $agreementStatus->getModel();
+
+        $storage = $this->getPayum()->getStorage('Payum\Core\Model\ArrayObject');
+        $recurringPayment = $storage->create();
+        $recurringPayment['TOKEN'] = $agreement['TOKEN'];
+        $recurringPayment['DESC'] = 'Plan'; // Desc must match agreement 'L_BILLINGAGREEMENTDESCRIPTION' in prepare.php
+        $recurringPayment['EMAIL'] = $agreement['EMAIL'];
+        $recurringPayment['AMT'] = 0.05;
+        $recurringPayment['CURRENCYCODE'] = 'USD';
+        $recurringPayment['BILLINGFREQUENCY'] = 7;
+        $recurringPayment['PROFILESTARTDATE'] = date(DATE_ATOM);
+        $recurringPayment['BILLINGPERIOD'] = Api::BILLINGPERIOD_DAY;
+		$gateway->execute(new CreateRecurringPaymentProfile($recurringPayment));
+		$gateway->execute(new Sync($recurringPayment));
+        Log::info('subscription', ['sub' => $recurringPayment]);
+        $doneToken = $payum->getTokenFactory()->createToken(Voyager::setting('current_gateway'), $recurringPayment, 'paypal_done');
+        return redirect($doneToken->getTargetUrl());
     }
 }

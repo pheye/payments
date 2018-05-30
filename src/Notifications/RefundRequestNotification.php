@@ -1,12 +1,12 @@
 <?php
 
-namespace App\Notifications;
+namespace Pheye\Payments\Notifications;
 
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Notification;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
-use App\Refund;
+use Pheye\Payments\Models\Refund;
 use Log;
 
 class RefundRequestNotification extends Notification implements ShouldQueue
