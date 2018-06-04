@@ -40,7 +40,7 @@ class Payment extends BasePayment
 
     public function getGatewayAttribute()
     {
-        return $this->subscription->gateway;
+        return $this->subscription->gatewayConfig->formatted_factory_name;
     }
 
     public function getStartDateAttribute()

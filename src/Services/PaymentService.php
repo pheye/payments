@@ -946,7 +946,7 @@ class PaymentService implements PaymentServiceContract
         $data->package = $packageName;// $payment->subscription->getPlan()->display_name;// package
         $data->name = $payment->client->name;// name
         $data->email = $payment->client_email;// email
-        $data->method = ucfirst($payment->gateway);// Paypal / Stripe;
+        $data->method = $payment->gateway;// Paypal, Credit
         // details已经通过casts进行了属性转化，不需要再json_decode
         $details = $payment->details;//paypal的details全部都是string类型
         $data->paymentAccount = $payment->buyer_email;// payment account
@@ -1026,7 +1026,7 @@ class PaymentService implements PaymentServiceContract
      */
     public function getInvoicePage($invoiceData)
     {
-        $view = view('subscriptions.invoice')->with('data', $invoiceData);
+        $view = view('payment::subscriptions.invoice')->with('data', $invoiceData);
         return response($view)->getContent();// 返回视图内容
     }
 

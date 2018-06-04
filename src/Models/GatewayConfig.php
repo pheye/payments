@@ -13,4 +13,17 @@ class GatewayConfig extends Model
     protected $casts = [
         'config' => 'json'
     ];
+
+    public function getFormattedFactoryNameAttribute()
+    {
+        switch ($this->factory_name) {
+        case static::FACTORY_PAYPAL_EXPRESS_CHECKOUT:
+        case static::FACTORY_PAYPAL_REST:
+            return 'Paypal';
+        case static::FACTORY_ZHONGWAIBAO:
+            return 'Credit';
+        default:
+            return 'Unknown';
+        }
+    }
 }
