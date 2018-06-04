@@ -32,6 +32,11 @@ class PaymentServiceProvider extends ServiceProvider
         $this->loadViewsFrom(__DIR__ . '/../resources/views', 'payment');
 
         \Pheye\Payments\Models\Refund::observe(\Pheye\Payments\Observers\RefundObserver::class);
+
+        if ($this->app->runningInConsole()) {
+            $this->registerConsoleCommands();
+        }
+
     }
 
     /**
@@ -91,5 +96,11 @@ class PaymentServiceProvider extends ServiceProvider
             /*         'secret_key' => env('STRIPE_SECRET_KEY') */
             /*     ]); */
         });
+    }
+
+    public function registerConsoleCommands() {
+        $this->commands([
+            Console\Commands\InvoiceCommand::class
+        ]);
     }
 }
