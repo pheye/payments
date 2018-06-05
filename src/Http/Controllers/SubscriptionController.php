@@ -34,6 +34,7 @@ use App\Jobs\SendUnsubscribeMail;
 use Pheye\Payments\Models\GatewayConfig;
 use App\Exceptions\BusinessErrorException;
 use Pheye\Payments\Events\PayedEvent;
+use Pheye\Payments\Jobs\GenerateInvoiceJob;
 use Voyager;
 use Illuminate\Support\Collection;
 
@@ -554,7 +555,7 @@ class SubscriptionController extends PayumController
 
         $subscription->user->fixInfoByPayments();
 
-        dispatch(new \App\Jobs\GenerateInvoiceJob(new Collection([$payment])));//入参类型为Collection  
+        dispatch(new GenerateInvoiceJob(new Collection([$payment])));//入参类型为Collection  
         event(new PayedEvent($payment));
         $redirectUrl = Voyager::setting('payed_redirect') ? : '/';
         if ($request->expectsJson()) {
@@ -777,7 +778,7 @@ class SubscriptionController extends PayumController
 
         $subscription->user->fixInfoByPayments();
 
-        dispatch(new \App\Jobs\GenerateInvoiceJob(new Collection([$payment])));//入参类型为Collection  
+        dispatch(new GenerateInvoiceJob(new Collection([$payment])));//入参类型为Collection  
         event(new PayedEvent($payment));
         $redirectUrl = Voyager::setting('payed_redirect') ? : '/';
         if ($req->expectsJson()) {
