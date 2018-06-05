@@ -738,6 +738,12 @@ class PaymentService implements PaymentServiceContract
             $refund->save();
             $refund->payment->client->fixInfoByPayments();
             return true;
+        } else if ($gatewayConfig->factory_name == GatewayConfig::FACTORY_ZHONGWAIBAO) {
+            Log::info('信用卡直接返回退款成功，管理员请到对应后台去完成实际退款');
+            $refund->status = Refund::STATE_ACCEPTED;
+            $refund->save();
+            $refund->payment->client->fixInfoByPayments();
+            return true;
         } else if ($gatewayConfig->factory_name === GatewayConfig::FACTORY_PAYPAL_REST && !$gatewayConfig->config['checkout']) {
             // 退款成功后，应该同步该订单的状态，同时及时修正用户权限
             $paypalRefund= $paypalService->refund($payment->number, $payment->currency, $amount);
@@ -765,8 +771,9 @@ class PaymentService implements PaymentServiceContract
             // 或者退完成了，但是在handleRefundedPayment取消用户订阅时跟Paypal通信出错
             dispatch((new SyncPaymentsJob($payment->subscription))->delay(Carbon::now()->addSeconds(10)));
             return true;
+        } else {
+            $this->log("refund failed:unsupported gateway");
         }
-        $this->log("refund failed");
         return false;    
     }
     /**
