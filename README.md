@@ -108,3 +108,7 @@ POST /pay
 paypal_express_checkout Paypal EC
 zhongwaibao 中外宝
 ```
+
+# 其他
+### 事件
+`Pheye\Payments\Events\PayedEvent`:在每次支付完成后，会执行`event(new PayedEvent($payment))`抛出支付完成的事件，以便应用程序可根据自身需要做些额外操作

@@ -10,7 +10,8 @@
         "payum/payum-laravel-package": "^1.0",
         "payum/paypal-express-checkout-nvp": "^1.4",
         "paypal/rest-api-sdk-php": "*",
-        "php-http/guzzle6-adapter": "^1.1"
+        "php-http/guzzle6-adapter": "^1.1",
+        "mpdf/mpdf": "^7.0"
     },
     "require-dev": {
         "laravel/framework": "5.4.*"

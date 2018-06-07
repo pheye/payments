@@ -100,7 +100,8 @@ class PaymentServiceProvider extends ServiceProvider
 
     public function registerConsoleCommands() {
         $this->commands([
-            Console\Commands\InvoiceCommand::class
+            Console\Commands\InvoiceCommand::class,
+            Console\Commands\RefundCommand::class
         ]);
     }
 }
