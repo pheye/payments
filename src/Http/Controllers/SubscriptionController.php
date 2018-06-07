@@ -178,7 +178,7 @@ class SubscriptionController extends PayumController
             return $this->payByStripe($req, $plan, $user, $coupon);
         }
         if ($gatewayConfig->factory_name == GatewayConfig::FACTORY_PAYPAL_EXPRESS_CHECKOUT) {
-            return $this->preparePaypalCheckout($req, $subscription, $plan);    
+            return $this->preparePaypalCheckout($req, $subscription, $plan, $gatewayConfig);    
         } else if ($gatewayConfig->factory_name == GatewayConfig::FACTORY_ZHONGWAIBAO) {
             return $this->payByZhongwaibao($req, $plan, $subscription, $gatewayConfig);
         }
@@ -404,7 +404,7 @@ class SubscriptionController extends PayumController
     /**
      * Paypal Express Checkout
      */
-    protected function preparePaypalCheckout(Request $request, $subscription, $plan)
+    protected function preparePaypalCheckout(Request $request, $subscription, $plan, $gatewayConfig)
     {
         $amount = $subscription->setup_fee;
         if (!$request->has('amount') && !$amount) {
@@ -420,7 +420,7 @@ class SubscriptionController extends PayumController
             $details['PAYMENTREQUEST_0_CURRENCYCODE'] = 'USD';
             $details['PAYMENTREQUEST_0_AMT'] = $amount;
             $storage->update($details);
-            $captureToken = $this->getPayum()->getTokenFactory()->createCaptureToken(Voyager::setting('current_gateway'), $details, 'paypal_done');
+            $captureToken = $this->getPayum()->getTokenFactory()->createCaptureToken($gatewayConfig->gateway_name, $details, 'paypal_done');
         } else {
             $agreement = $storage->create();
             $agreement['PAYMENTREQUEST_0_AMT'] = 0; // For an initial amount to be charged please add it here, eg $10 setup fee
@@ -429,7 +429,7 @@ class SubscriptionController extends PayumController
             $agreement['NOSHIPPING'] = 1;
             $storage->update($agreement);
 
-            $captureToken = $this->getPayum()->getTokenFactory()->createCaptureToken(Voyager::setting('current_gateway'), $agreement, 'paypal_capture');
+            $captureToken = $this->getPayum()->getTokenFactory()->createCaptureToken($gatewayConfig->gateway_name, $agreement, 'paypal_capture');
 
             $storage->update($agreement);
         }

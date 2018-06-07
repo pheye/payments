@@ -990,7 +990,7 @@ class PaymentService implements PaymentServiceContract
 
         //合并额外参数
         if (empty($extra)) {
-            $extra = \App\CustomizedInvoice::select('company_name', 'address', 'contact_info', 'website', 'tax_no')
+            $extra = \Pheye\Payments\Models\CustomizedInvoice::select('company_name', 'address', 'contact_info', 'website', 'tax_no')
             ->where('user_id', $payment->client_id)
             ->first();
         }

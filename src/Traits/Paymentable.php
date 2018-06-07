@@ -58,4 +58,9 @@ trait Paymentable
     {
         return $this->hasMany(Coupon::class);
     }
+
+    public function fixInfoByPayments()
+    {
+        // stub
+    }
 }
