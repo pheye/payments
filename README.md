@@ -26,19 +26,20 @@ composer require pheye/payments dev-master
 生成相关配置文件：
 
 ```
-$php artisan vendor:publish --provider='Pheye\Payments\PaymentServiceProvider'
+$ php artisan vendor:publish --provider='Pheye\Payments\PaymentServiceProvider'
+$ composer dump-autoload
 ```
 
 完成数据库迁移：
 
 ```
-php artisan migrate
+$ php artisan migrate
 ```
 
 填充`Voyager`后台菜单:
 
 ```
-php artisan db:seed --class=VoyagerAdminSeeder
+$ php artisan db:seed --class=VoyagerAdminSeeder
 ```
 
 至此，基本配置就完成了。
