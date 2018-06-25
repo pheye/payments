@@ -6,7 +6,16 @@ use Illuminate\Database\Eloquent\Model;
 
 class Subscription extends Model
 {
-    
+    protected $casts = [
+        'details' => 'array'
+    ];
+
+    public function getDetailsAttribute ($value)
+    {
+        if (is_null($value))
+            return [];
+        return $value;
+    }
     /**
      * 订阅刚创建，未完成时的状态,每个用户应最多只有一个处于该状态的订阅
      */

@@ -3,10 +3,13 @@
 namespace Pheye\Payments;
 
 use Pheye\Payments\Models\GatewayConfig;
+use Pheye\Payments\Models\AgreementDetails;
+use Pheye\Payments\Models\RecurringPaymentDetails;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Foundation\AliasLoader;
 use Pheye\Payments\Facades\Payment as PaymentFacade;
 use Payum\LaravelPackage\Storage\EloquentStorage;
+use Payum\Core\Storage\FilesystemStorage;
 use Payum\LaravelPackage\Model\Token;
 
 class PaymentServiceProvider extends ServiceProvider
@@ -63,10 +66,11 @@ class PaymentServiceProvider extends ServiceProvider
                 /* ->setTokenStorage(new FilesystemStorage(sys_get_temp_dir(), Token::class, 'hash')) */
                 /* ->addStorage(Payment::class, new EloquentStorage(Payment::class)) */
                 /* ->setTokenStorage(new EloquentStorage(Token::class)) */
-                /* ->addStorage(\ArrayObject::class, new FilesystemStorage(sys_get_temp_dir(), ArrayObject::class)) */
                 /* ->addStorage(Payout::class, new FilesystemStorage(sys_get_temp_dir(), Payout::class)) */
                 ->addDefaultStorages()
-                ->setTokenStorage(new EloquentStorage(Token::class));
+                ->setTokenStorage(new EloquentStorage(Token::class))
+                ->addStorage(AgreementDetails::class, new FilesystemStorage(sys_get_temp_dir(), AgreementDetails::class))
+                ->addStorage(RecurringPaymentDetails::class, new FilesystemStorage(sys_get_temp_dir(), RecurringPaymentDetails::class));
             // Paypal配置全部从数据库中读取
             // Paypal Express Checkout
             $configs = GatewayConfig::where('factory_name', GatewayConfig::FACTORY_PAYPAL_EXPRESS_CHECKOUT)->get();
@@ -101,7 +105,8 @@ class PaymentServiceProvider extends ServiceProvider
     public function registerConsoleCommands() {
         $this->commands([
             Console\Commands\InvoiceCommand::class,
-            Console\Commands\RefundCommand::class
+            Console\Commands\RefundCommand::class,
+            Console\Commands\SyncPaymentsCommand::class
         ]);
     }
 }

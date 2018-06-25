@@ -61,10 +61,9 @@ interface PaymentService
      * 2. Paypal的Webhook是个不可靠的机制，为了防止此问题，也需要定期执行同步命令;
      * 3. 当用户被循环扣款后，通过该命令同步用户的过期时间
      * 4. 当用户退款时，通过该命令设置用户的过期时间和切换计划
-     * @param Array $gateways 为空值时表示同步所有计划;否则同步指定的计划。每个数组项应从GATEWAY_*中取值。
      * @param mixed $subscription 指定同步的订阅，如果指明该参数将只同步该订阅
      */
-    public function syncPayments(Array $gateways, $subscription = null);
+    public function syncPayments($subscription = null);
 
 
     /**

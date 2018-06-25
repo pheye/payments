@@ -7,13 +7,16 @@ use Illuminate\Support\Facades\Input;
 use Illuminate\Support\Facades\Auth;
 use Log;
 use App\User;
-use App\Role;
+use App\Webhook;
+use App\ActionLog;
+use Pheye\Payments\Models\Role;
 use Pheye\Payments\Models\Plan;
 use Pheye\Payments\Models\Subscription;
-use App\Webhook;
+use Pheye\Payments\Models\GatewayConfig;
+use Pheye\Payments\Models\AgreementDetails;
+use Pheye\Payments\Models\RecurringPaymentDetails;
 use Pheye\Payments\Models\Coupon;
 use Pheye\Payments\Models\Refund;
-use App\ActionLog;
 use Pheye\Payments\Services\PaypalService;
 use Carbon\Carbon;
 use Payum\Core\Request\Sync;
@@ -31,8 +34,7 @@ use App\Jobs\LogAction;
 use GuzzleHttp\Client;
 use App\Jobs\SendUserMail;
 use App\Jobs\SendUnsubscribeMail;
-use Pheye\Payments\Models\GatewayConfig;
-use App\Exceptions\BusinessErrorException;
+use Pheye\Payments\Exceptions\BusinessErrorException;
 use Pheye\Payments\Events\PayedEvent;
 use Pheye\Payments\Jobs\GenerateInvoiceJob;
 use Voyager;
@@ -413,20 +415,23 @@ class SubscriptionController extends PayumController
         if (!$amount) {
             $amount = $request->amount;
         }
-        $storage = $this->getPayum()->getStorage('Payum\Core\Model\ArrayObject');
         // 一次性付款
-        if ($request->has('onetime')) {
+        if ($request->input('onetime', 0)) {
+            $storage = $this->getPayum()->getStorage('Payum\Core\Model\ArrayObject');
             $details = $storage->create();
             $details['PAYMENTREQUEST_0_CURRENCYCODE'] = 'USD';
             $details['PAYMENTREQUEST_0_AMT'] = $amount;
             $storage->update($details);
             $captureToken = $this->getPayum()->getTokenFactory()->createCaptureToken($gatewayConfig->gateway_name, $details, 'paypal_done');
         } else {
+            $storage = $this->getPayum()->getStorage(AgreementDetails::class);
             $agreement = $storage->create();
-            $agreement['PAYMENTREQUEST_0_AMT'] = 0; // For an initial amount to be charged please add it here, eg $10 setup fee
+            $agreement['PAYMENTREQUEST_0_AMT'] = $plan->setup_fee; // For an initial amount to be charged please add it here, eg $10 setup fee
             $agreement['L_BILLINGTYPE0'] = Api::BILLINGTYPE_RECURRING_PAYMENTS;
-            $agreement['L_BILLINGAGREEMENTDESCRIPTION0'] = "Plan";
+            $agreement['L_BILLINGAGREEMENTDESCRIPTION0'] = $plan->desc;
             $agreement['NOSHIPPING'] = 1;
+            $agreement->subscription_id = $subscription->id;
+            $agreement->plan_id = $plan->id;
             $storage->update($agreement);
 
             $captureToken = $this->getPayum()->getTokenFactory()->createCaptureToken($gatewayConfig->gateway_name, $agreement, 'paypal_capture');
@@ -503,15 +508,49 @@ class SubscriptionController extends PayumController
         return 'unknown payment method';
     }
 
+    /**
+     * Paypl支付完成后的处理路径
+     */
     public function onPaypalDone(Request $request)
     {
         $token = $this->getPayum()->getHttpRequestVerifier()->verify($request);
         $gateway = $this->getPayum()->getGateway($token->getGatewayName());
-
+        // 获取最初的Model, 非常重要！！
+        $identity = $token->getDetails();
+        $model = $this->getPayum()->getStorage($identity->getClass())->find($identity->getId());
         $gateway->execute($status = new GetHumanStatus($token));
         $detail = iterator_to_array($status->getFirstModel());
+        Log::info('detail:', ['detail' => $model, 'status' => $status]);
+        if (isset($model['BILLINGPERIOD'])) {
+            // 循环扣款
+            return $this->onPaypalRecurringDone($request, $gateway, $detail, $model);
+        } else {
+            // 一次性扣款
+            return $this->onPaypalOnetimeDone($request, $gateway, $detail, $status);
+        }
+        /* $payum->getHttpRequestVerifier()->invalidate($token); */
+    }
+
+    /**
+     * 循环扣款订阅完成
+     */
+    public function onPaypalRecurringDone(Request $request, $gateway, $detail, $model)
+    {
+        $subscription = $model->subscription;
+        $subscription->agreement_id = $detail['PROFILEID'];
+        $subscription->quantity = 1;
+        $subscription->details = $detail;
+        $subscription->save();
+        dd($detail);
+    }
+
+    /**
+     * 一次性付款的处理
+     */
+    public function onPaypalOnetimeDone(Request $request,  $gateway, $detail, $status)
+    {
         if (!Auth::user()) {
-            throw new BusinessErrorException('pay failed, if you have completed payment, please contact us: support@onlineadspyer.com');
+            throw new BusinessErrorException('pay failed, if you have completed payment, please contact us');
         }
         if ($status->getValue() == 'canceled') {
             // 目前统一回到首页，实际上应该是去到信息提示页面，由信息提示页面做进一步的操作
@@ -519,7 +558,7 @@ class SubscriptionController extends PayumController
         }
         if (!($status->getValue() == 'captured')) {
             Log::warning('pay failed', ['user' => Auth::user()->email, 'detail' => $detail]);
-            throw new BusinessErrorException('pay failed, please try again <a href="/pricing">Back</a>, or mail to support@onlineadspyer.com');
+            throw new BusinessErrorException('pay failed, please try again');
         }
 
         if (OurPayment::where('number', $detail['TRANSACTIONID'])->count() > 0) {
@@ -795,6 +834,8 @@ class SubscriptionController extends PayumController
         /** @var \Payum\Core\Payum $payum */
         $payum = $this->getPayum();
         $token = $payum->getHttpRequestVerifier()->verify($request);
+        $identity = $token->getDetails();
+        $model = $this->getPayum()->getStorage($identity->getClass())->find($identity->getId());
         $payum->getHttpRequestVerifier()->invalidate($token);
         $gateway = $payum->getGateway($token->getGatewayName());
         $agreementStatus = new GetHumanStatus($token);
@@ -805,16 +846,19 @@ class SubscriptionController extends PayumController
         }
         $agreement = $agreementStatus->getModel();
 
-        $storage = $this->getPayum()->getStorage('Payum\Core\Model\ArrayObject');
+        $plan = $agreement->plan;
+        $storage = $this->getPayum()->getStorage(RecurringPaymentDetails::class);
         $recurringPayment = $storage->create();
         $recurringPayment['TOKEN'] = $agreement['TOKEN'];
-        $recurringPayment['DESC'] = 'Plan'; // Desc must match agreement 'L_BILLINGAGREEMENTDESCRIPTION' in prepare.php
+        $recurringPayment['DESC'] = $plan->desc; // Desc must match agreement 'L_BILLINGAGREEMENTDESCRIPTION' in prepare.php
         $recurringPayment['EMAIL'] = $agreement['EMAIL'];
-        $recurringPayment['AMT'] = 0.05;
-        $recurringPayment['CURRENCYCODE'] = 'USD';
-        $recurringPayment['BILLINGFREQUENCY'] = 7;
+        $recurringPayment['AMT'] = $plan->amount;
+        $recurringPayment['CURRENCYCODE'] = $plan->currency;
+        $recurringPayment['BILLINGFREQUENCY'] = $plan->frequency_interval;
         $recurringPayment['PROFILESTARTDATE'] = date(DATE_ATOM);
         $recurringPayment['BILLINGPERIOD'] = Api::BILLINGPERIOD_DAY;
+        $recurringPayment->subscription_id = $agreement->subscription_id;
+        $recurringPayment->plan_id = $agreement->plan_id;
 		$gateway->execute(new CreateRecurringPaymentProfile($recurringPayment));
 		$gateway->execute(new Sync($recurringPayment));
         Log::info('subscription', ['sub' => $recurringPayment]);

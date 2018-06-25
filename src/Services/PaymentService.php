@@ -366,10 +366,150 @@ class PaymentService implements PaymentServiceContract
         /* } */
     }
 
+
+    /**
+     * 同步Paypal REST API的支付
+     */
+    public function syncPaypalRestPayments (Subscription $item)
+    {
+        $service = $this->getPaypalService();
+        if (!in_array($item->tag, $tags)) {
+            $this->log("{$item->agreement_id} tag is {$item->tag}, not in tags, skip");
+            return;
+        }
+        // 未完成订阅直接忽略
+        if ($item->status == Subscription::STATE_CREATED) {
+            return;
+        }
+        if ($item->status == Subscription::STATE_CANCLED && !$force) {
+            $this->log("skip cancelled subscription {$item->agreement_id}");
+            return;
+        }
+        $this->log("sync payments from paypal agreement:"  . $item->agreement_id);
+        $transactions = $service->transactions($item->agreement_id);
+        if ($transactions == null) {
+            return;
+        }
+        foreach ($transactions as $t) {
+            $amount = $t->getAmount();
+            if ($amount == null) {
+                return;
+            }
+
+            $carbon = new Carbon($t->getTimeStamp(), $t->getTimeZone());
+            $carbon->tz = Carbon::now()->tz;
+
+            $isDirty = false;
+            $paypalStatus = strtolower($t->getStatus());
+            $payment = Payment::firstOrNew(['number' => $t->getTransactionId()]);
+            $payment->number = $t->getTransactionId();
+            $payment->description = $item->plan;
+            $payment->client_id = $item->user->id;
+            $payment->client_email = $item->user->email;
+            $payment->amount = $amount->getValue();
+            $payment->currency = $amount->getCurrency();
+            $payment->subscription()->associate($item);
+            $payment->details = $t->toJSON();
+            $payment->created_at = $carbon;
+
+            // TODO: 该代码主要解决早期buyer_email为空的问题，应该直接赋值，移除判断
+            if (empty($payment->buyer_email)) {
+                $payment->buyer_email = $t->getPayerEmail();
+                $isDirty = true;
+            } else {
+                $payment->buyer_email = $t->getPayerEmail();
+            }
+            // 当状态变化时要更新订单
+            if ($paypalStatus != $payment->status) {
+                $this->log("status will change:{$payment->status} -> $paypalStatus", PaymentService::LOG_INFO);
+
+                $isDirty = true;
+                switch ($paypalStatus) {
+                case 'completed':
+                    if ($payment->refund && $payment->refund->isRefunding()) {
+                        $payment->status = Payment::STATE_REFUNDING;
+                        $this->log("the payment is refunding, change to `refunding` instead of `completed`", PaymentService::LOG_INFO);
+                    } else {
+                        $payment->status = Payment::STATE_COMPLETED;
+                    }
+                    break;
+
+                default:
+                    // 刚好我们的状态名称与Paypal一致，如果发现不一致需要一一转换
+                    $payment->status = $paypalStatus;
+                }
+                if ($payment->status == Payment::STATE_COMPLETED) {
+                    $this->log("handle payment...", PaymentService::LOG_INFO);
+                }
+            }
+
+            if ($isDirty) {
+                $payment->save();
+                $this->handlePayment($payment);
+                $this->log("payment {$payment->number} is synced", PaymentService::LOG_INFO);
+            } else {
+                $this->log("payment {$payment->number} has no change", PaymentService::LOG_INFO);
+            }
+
+            // 补全退款申请单和根据退款状态处理用户状态
+            if ($payment->status == Payment::STATE_REFUNDED) {
+                $this->log("generate refund on payment $payment->number", PaymentService::LOG_INFO);
+                $refund = $payment->refund;
+                if (!$refund) {
+                    $this->log("payment $payment->number dont have refund record", PaymentService::LOG_INFO);
+                    $refund = new Refund();
+                    $refund->amount = $payment->amount;
+                    $refund->note = "auto synced refunds";
+                    $refund->status = Refund::STATE_ACCEPTED;
+                    $refund->payment_id = $payment->id;//payment()->associate($payment);
+                    $refund->refunded_at = $this->getRefundedCompletedTime($payment->number);// 获取交易的退款<<完成>>时间
+                    $res = $refund->save();
+                    $this->log("generate refund automatically:$res", PaymentService::LOG_INFO);
+                }
+                $this->log("payment $payment->number has refund record", PaymentService::LOG_INFO);
+                if ($refund->status != Refund::STATE_ACCEPTED) {
+                    $this->log("but status is not accept,now change to it", PaymentService::LOG_INFO);
+                    $refund->status = Refund::STATE_ACCEPTED;
+                    $refund->refunded_at = $this->getRefundedCompletedTime($payment->number);// 获取交易的退款<<完成>>时间
+                    $refund->save();
+                    $this->log("payment $payment->number refunded_at: $refund->refunded_at", PaymentService::LOG_INFO);
+                } else {
+                    if (is_null($refund->refunded_at)) {
+                        // 用于填充旧记录中refunded_at为空的记录
+                        $this->log("save refunded_at to payment(number: $payment->number)", PaymentService::LOG_INFO);
+                        $refund->refunded_at = $this->getRefundedCompletedTime($payment->number);// 获取交易的退款<<完成>>时间
+                        $refund->save();
+                    }
+                }
+                $this->handleRefundedPayment($payment);
+            }
+            if ($payment->status == Payment::STATE_COMPLETED && is_null($payment->invoice_id)) {
+                // 如果票据未生成执行生成
+                dispatch((new \App\Jobs\GenerateInvoiceJob(Payment::where('number', $payment->number)->get())));//入参类型为Collection
+            }
+        }
+        // 根据用户过期时间规划是否在指定时间同步该订阅的订单
+        if ($item->status == Subscription::STATE_PAYED) {
+            $this->autoScheduleSyncPayments($item);
+        }
+
+    }
+
+    /**
+     * 同步Paypal EC循环扣款的订单
+     */
+    public function syncPaypalECPayments(Subscription $subscription)
+    {
+        if (!$subscription->agreement_id)
+            return;
+        $this->log("sync {$subscription->agreement_id}");
+        
+    }
+
     /**
      * {@inheritDoc}
      */
-    public function syncPayments(array $gateways = [], $subscription = null)
+    public function syncPayments($subscription = null)
     {
         // 目前只有Paypal需要同步支付记录, stripe是立即获取的
         $res = [];
@@ -384,129 +524,12 @@ class PaymentService implements PaymentServiceContract
             $subscriptions = Subscription::where('quantity', '>', 0)->whereIn('tag', $tags)->get();
             $force = $this->getParameter(PaymentService::PARAMETER_FORCE);
         }
-        $service = $this->getPaypalService();
         foreach ($subscriptions as $item) {
-            if ($item->gatewayConfig->factory_name != GatewayConfig::FACTORY_PAYPAL_REST) {
-                continue;
-            }
-            if (!in_array($item->tag, $tags)) {
-                $this->log("{$item->agreement_id} tag is {$item->tag}, not in tags, skip");
-                continue;
-            }
-            // 未完成订阅直接忽略
-            if ($item->status == Subscription::STATE_CREATED) {
-                continue;
-            }
-            if ($item->status == Subscription::STATE_CANCLED && !$force) {
-                $this->log("skip cancelled subscription {$item->agreement_id}");
-                continue;
-            }
-            $this->log("sync payments from paypal agreement:"  . $item->agreement_id);
-            $transactions = $service->transactions($item->agreement_id);
-            if ($transactions == null) {
-                continue;
-            }
-            foreach ($transactions as $t) {
-                $amount = $t->getAmount();
-                if ($amount == null) {
-                    continue;
-                }
-
-                $carbon = new Carbon($t->getTimeStamp(), $t->getTimeZone());
-                $carbon->tz = Carbon::now()->tz;
-
-                $isDirty = false;
-                $paypalStatus = strtolower($t->getStatus());
-                $payment = Payment::firstOrNew(['number' => $t->getTransactionId()]);
-                $payment->number = $t->getTransactionId();
-                $payment->description = $item->plan;
-                $payment->client_id = $item->user->id;
-                $payment->client_email = $item->user->email;
-                $payment->amount = $amount->getValue();
-                $payment->currency = $amount->getCurrency();
-                $payment->subscription()->associate($item);
-                $payment->details = $t->toJSON();
-                $payment->created_at = $carbon;
-
-                // TODO: 该代码主要解决早期buyer_email为空的问题，应该直接赋值，移除判断
-                if (empty($payment->buyer_email)) {
-                    $payment->buyer_email = $t->getPayerEmail();
-                    $isDirty = true;
-                } else {
-                    $payment->buyer_email = $t->getPayerEmail();
-                }
-                // 当状态变化时要更新订单
-                if ($paypalStatus != $payment->status) {
-                    $this->log("status will change:{$payment->status} -> $paypalStatus", PaymentService::LOG_INFO);
-                        
-                    $isDirty = true;
-                    switch ($paypalStatus) {
-                        case 'completed':
-                            if ($payment->refund && $payment->refund->isRefunding()) {
-                                $payment->status = Payment::STATE_REFUNDING;
-                                $this->log("the payment is refunding, change to `refunding` instead of `completed`", PaymentService::LOG_INFO);
-                            } else {
-                                $payment->status = Payment::STATE_COMPLETED;
-                            }
-                            break;
-                                
-                        default:
-                            // 刚好我们的状态名称与Paypal一致，如果发现不一致需要一一转换
-                            $payment->status = $paypalStatus;
-                    }
-                    if ($payment->status == Payment::STATE_COMPLETED) {
-                        $this->log("handle payment...", PaymentService::LOG_INFO);
-                    }
-                }
-
-                if ($isDirty) {
-                    $payment->save();
-                    $this->handlePayment($payment);
-                    $this->log("payment {$payment->number} is synced", PaymentService::LOG_INFO);
-                } else {
-                    $this->log("payment {$payment->number} has no change", PaymentService::LOG_INFO);
-                }
-
-                // 补全退款申请单和根据退款状态处理用户状态
-                if ($payment->status == Payment::STATE_REFUNDED) {
-                    $this->log("generate refund on payment $payment->number", PaymentService::LOG_INFO);
-                    $refund = $payment->refund;
-                    if (!$refund) {
-                        $this->log("payment $payment->number dont have refund record", PaymentService::LOG_INFO);
-                        $refund = new Refund();
-                        $refund->amount = $payment->amount;
-                        $refund->note = "auto synced refunds";
-                        $refund->status = Refund::STATE_ACCEPTED;
-                        $refund->payment_id = $payment->id;//payment()->associate($payment);
-                        $refund->refunded_at = $this->getRefundedCompletedTime($payment->number);// 获取交易的退款<<完成>>时间
-                        $res = $refund->save();
-                        $this->log("generate refund automatically:$res", PaymentService::LOG_INFO);
-                    }
-                    $this->log("payment $payment->number has refund record", PaymentService::LOG_INFO);
-                    if ($refund->status != Refund::STATE_ACCEPTED) {
-                        $this->log("but status is not accept,now change to it", PaymentService::LOG_INFO);
-                        $refund->status = Refund::STATE_ACCEPTED;
-                        $refund->refunded_at = $this->getRefundedCompletedTime($payment->number);// 获取交易的退款<<完成>>时间
-                        $refund->save();
-                        $this->log("payment $payment->number refunded_at: $refund->refunded_at", PaymentService::LOG_INFO);
-                    } else {
-                        if (is_null($refund->refunded_at)) {
-                            // 用于填充旧记录中refunded_at为空的记录
-                            $this->log("save refunded_at to payment(number: $payment->number)", PaymentService::LOG_INFO);
-                            $refund->refunded_at = $this->getRefundedCompletedTime($payment->number);// 获取交易的退款<<完成>>时间
-                            $refund->save();
-                        }
-                    }
-                    $this->handleRefundedPayment($payment);
-                }
-                if ($payment->status == Payment::STATE_COMPLETED && is_null($payment->invoice_id)) {
-                    // 如果票据未生成执行生成
-                    dispatch((new \App\Jobs\GenerateInvoiceJob(Payment::where('number', $payment->number)->get())));//入参类型为Collection
-                }
-            }
-            // 根据用户过期时间规划是否在指定时间同步该订阅的订单
-            if ($item->status == Subscription::STATE_PAYED) {
-                $this->autoScheduleSyncPayments($item);
+            switch ($item->gatewayConfig->factory_name) {
+            case GatewayConfig::FACTORY_PAYPAL_REST:
+                $this->syncPaypalRestPayments($item);
+            case GatewayConfig::FACTORY_PAYPAL_EXPRESS_CHECKOUT:
+                $this->syncPaypalECPayments($item);
             }
         }
     }
