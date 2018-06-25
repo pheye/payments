@@ -8,7 +8,7 @@
         "pheye/voyager": "dev-master",
         "payum/core": "^1.5",
         "payum/payum-laravel-package": "^1.0",
-        "papamonkey/paypal-express-checkout-nvp": "dev-master",
+        "papamonkey/paypal-express-checkout-nvp": "^1.5.1",
         "paypal/rest-api-sdk-php": "*",
         "php-http/guzzle6-adapter": "^1.1",
         "mpdf/mpdf": "^7.0"

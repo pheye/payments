@@ -426,7 +426,7 @@ class SubscriptionController extends PayumController
         } else {
             $storage = $this->getPayum()->getStorage(AgreementDetails::class);
             $agreement = $storage->create();
-            $agreement['PAYMENTREQUEST_0_AMT'] = $plan->setup_fee; // For an initial amount to be charged please add it here, eg $10 setup fee
+            $agreement['PAYMENTREQUEST_0_AMT'] = 0; // For an initial amount to be charged please add it here, eg $10 setup fee
             $agreement['L_BILLINGTYPE0'] = Api::BILLINGTYPE_RECURRING_PAYMENTS;
             $agreement['L_BILLINGAGREEMENTDESCRIPTION0'] = $plan->desc;
             $agreement['NOSHIPPING'] = 1;
@@ -540,6 +540,7 @@ class SubscriptionController extends PayumController
         $subscription->agreement_id = $detail['PROFILEID'];
         $subscription->quantity = 1;
         $subscription->details = $detail;
+        $subscription->status = 'payed';
         $subscription->save();
         dd($detail);
     }
@@ -853,6 +854,7 @@ class SubscriptionController extends PayumController
         $recurringPayment['DESC'] = $plan->desc; // Desc must match agreement 'L_BILLINGAGREEMENTDESCRIPTION' in prepare.php
         $recurringPayment['EMAIL'] = $agreement['EMAIL'];
         $recurringPayment['AMT'] = $plan->amount;
+        $recurringPayment['INITAMT'] = $plan->setup_fee;
         $recurringPayment['CURRENCYCODE'] = $plan->currency;
         $recurringPayment['BILLINGFREQUENCY'] = $plan->frequency_interval;
         $recurringPayment['PROFILESTARTDATE'] = date(DATE_ATOM);
