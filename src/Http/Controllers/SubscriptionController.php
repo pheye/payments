@@ -118,6 +118,7 @@ class SubscriptionController extends PayumController
      * @param  coupon coupon值
      * @param  gateway_name 网关名称
      * @param  skype @deprecated
+     * @todo 全部移到Service中
      */
     public function pay(Request $req)
     {
@@ -167,7 +168,11 @@ class SubscriptionController extends PayumController
         $subscription->plan = $plan->name;
         $subscription->quantity = 0;
         $subscription->coupon_id = $coupon ? $coupon->id : 0;
-        $subscription->setup_fee = $plan->amount - $discount;
+        if ($req->input('onetime', 0)) {
+            $subscription->setup_fee = $plan->amount - $discount;
+        } else {
+            $subscription->setup_fee = $plan->setup_fee - $discount;
+        }
         $subscription->frequency = $plan->frequency;
         $subscription->frequency_interval = $plan->frequency_interval;
         $subscription->gateway_id = $gatewayConfig->id;
@@ -320,7 +325,7 @@ class SubscriptionController extends PayumController
             return redirect('/app/profile?active=0&sub=' . $subscription->id);
         }
 
-        $this->paymentService->syncPayments([], $subscription);
+        $this->paymentService->syncPayments($subscription);
         // 对成功订阅的用户发送帮助邮件, 排除社交登录无有效邮箱和内部测试使用邮箱
         // modify by ruanmingzhi 2017-12-14
         $user = User::find($subscription->user->id);
@@ -419,14 +424,14 @@ class SubscriptionController extends PayumController
         if ($request->input('onetime', 0)) {
             $storage = $this->getPayum()->getStorage('Payum\Core\Model\ArrayObject');
             $details = $storage->create();
-            $details['PAYMENTREQUEST_0_CURRENCYCODE'] = 'USD';
+            $details['PAYMENTREQUEST_0_CURRENCYCODE'] = $plan->currency;
             $details['PAYMENTREQUEST_0_AMT'] = $amount;
             $storage->update($details);
             $captureToken = $this->getPayum()->getTokenFactory()->createCaptureToken($gatewayConfig->gateway_name, $details, 'paypal_done');
         } else {
             $storage = $this->getPayum()->getStorage(AgreementDetails::class);
             $agreement = $storage->create();
-            $agreement['PAYMENTREQUEST_0_AMT'] = 0; // For an initial amount to be charged please add it here, eg $10 setup fee
+            $agreement['PAYMENTREQUEST_0_AMT'] = 0;//$amount; // For an initial amount to be charged please add it here, eg $10 setup fee
             $agreement['L_BILLINGTYPE0'] = Api::BILLINGTYPE_RECURRING_PAYMENTS;
             $agreement['L_BILLINGAGREEMENTDESCRIPTION0'] = $plan->desc;
             $agreement['NOSHIPPING'] = 1;
@@ -542,7 +547,10 @@ class SubscriptionController extends PayumController
         $subscription->details = $detail;
         $subscription->status = 'payed';
         $subscription->save();
-        dd($detail);
+
+        $this->paymentService->syncPayments($subscription);
+        $payment = $subscription->payments()->orderBy('created_at', 'desc')->first();
+        return $this->afterPay($request, $payment);
     }
 
     /**
@@ -854,7 +862,7 @@ class SubscriptionController extends PayumController
         $recurringPayment['DESC'] = $plan->desc; // Desc must match agreement 'L_BILLINGAGREEMENTDESCRIPTION' in prepare.php
         $recurringPayment['EMAIL'] = $agreement['EMAIL'];
         $recurringPayment['AMT'] = $plan->amount;
-        $recurringPayment['INITAMT'] = $plan->setup_fee;
+        $recurringPayment['INITAMT'] = $agreement->subscription->setup_fee;
         $recurringPayment['CURRENCYCODE'] = $plan->currency;
         $recurringPayment['BILLINGFREQUENCY'] = $plan->frequency_interval;
         $recurringPayment['PROFILESTARTDATE'] = date(DATE_ATOM);
@@ -866,5 +874,18 @@ class SubscriptionController extends PayumController
         Log::info('subscription', ['sub' => $recurringPayment]);
         $doneToken = $payum->getTokenFactory()->createToken(Voyager::setting('current_gateway'), $recurringPayment, 'paypal_done');
         return redirect($doneToken->getTargetUrl());
+    }
+
+    protected function afterPay (Request $request, $payment)
+    {
+        $payment->client->fixInfoByPayments();
+
+        dispatch(new GenerateInvoiceJob(new Collection([$payment])));//入参类型为Collection  
+        event(new PayedEvent($payment));
+        $redirectUrl = Voyager::setting('payed_redirect') ? : '/';
+        if ($request->expectsJson()) {
+            return response()->json(['redirect' => $redirectUrl]);
+        }
+        return redirect($redirectUrl);
     }
 }

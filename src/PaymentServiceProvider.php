@@ -106,7 +106,8 @@ class PaymentServiceProvider extends ServiceProvider
         $this->commands([
             Console\Commands\InvoiceCommand::class,
             Console\Commands\RefundCommand::class,
-            Console\Commands\SyncPaymentsCommand::class
+            Console\Commands\SyncPaymentsCommand::class,
+            Console\Commands\CancelCommand::class
         ]);
     }
 }

@@ -3,9 +3,8 @@ namespace Pheye\Payments\Services;
 
 use Illuminate\Support\Collection;
 use Pheye\Payments\Contracts\PaymentService as PaymentServiceContract;
-use Log;
-use App\Plan;
-use App\Role;
+use Pheye\Payments\Models\Plan;
+use Pheye\Payments\Models\Role;
 use Pheye\Payments\Models\Payment;
 use Pheye\Payments\Models\Subscription;
 use Pheye\Payments\Models\Refund;
@@ -25,6 +24,10 @@ use App\Exceptions\GenericException;
 use Mpdf\Mpdf;
 use Storage;
 use Voyager;
+use Log;
+use Payum\Core\Request\Cancel;
+use Payum\Core\Request\Sync;
+use Payum\Core\Request\GetHumanStatus;
 
 class PaymentService implements PaymentServiceContract
 {
@@ -513,10 +516,27 @@ class PaymentService implements PaymentServiceContract
         $model['PROFILEID'] = $subscription->agreement_id;
         $model['STARTDATE'] = Carbon::now()->subYears(5)->toIso8601String();
         $storage->update($model);
-        $gateway = $payum->getGateway('paypal_ec');
+        $gateway = $payum->getGateway($subscription->gatewayConfig->gateway_name);
         $gateway->execute($status = new TransactionSearch($model));
         $model = $status->getFirstModel();
-        dd($model);
+        $idx = 1;
+        while (isset($model["L_TRANSACTIONID{$idx}"])) {
+            $number = $model["L_TRANSACTIONID{$idx}"];
+            $payment = Payment::firstOrNew(['number' => $number]);
+            $payment->number = $number;
+            $payment->description = '';
+            $payment->buyer_email = $model["L_EMAIL{$idx}"];
+            $payment->client_id = $subscription->user->id;
+            $payment->client_email = $subscription->user->email;
+            $payment->amount = $model["L_AMT{$idx}"];
+            $payment->currency = $model["L_CURRENCYCODE{$idx}"];
+            $payment->subscription()->associate($subscription);
+            $payment->details = (array)$model;
+            $payment->status = $model["L_STATUS{$idx}"];
+            $payment->created_at = Carbon::createFromTimeString($model["L_TIMESTAMP{$idx}"]);
+            $payment->save();
+            $idx++;
+        }
     }
 
     /**
@@ -693,7 +713,9 @@ class PaymentService implements PaymentServiceContract
             return false;
         }
         $isOk = false;
-        if ($subscription->gateway == PaymentService::GATEWAY_STRIPE) {
+        $gatewayConfig = $subscription->gatewayConfig;
+
+        if ($gatewayConfig->factory_name === GatewayConfig::FACTORY_STRIPE) {
             $stripeSub = \Stripe\Subscription::retrieve($subscription->agreement_id);
             $res = $stripeSub->cancel();
             if ($res["status"] == \Stripe\Subscription::STATUS_CANCELED) {
@@ -701,12 +723,25 @@ class PaymentService implements PaymentServiceContract
             }
         }
 
-        if ($subscription->gateway == PaymentService::GATEWAY_PAYPAL) {
+        if ($gatewayConfig->factory_name === GatewayConfig::FACTORY_PAYPAL_REST) {
             $res = $this->getPaypalService()->cancelSubscription($subscription->agreement_id);
             if ($res) {
                 $isOk = true;
             }
             $this->syncSubscriptions([], $subscription);
+        } 
+
+        if ($gatewayConfig->factory_name == GatewayConfig::FACTORY_PAYPAL_EXPRESS_CHECKOUT) {
+            $payum = app('payum');
+            $model = json_decode($subscription->details, true);
+            $gateway = $payum->getGateway($subscription->gatewayConfig->gateway_name);
+            $gateway->execute(new Cancel($model));
+            $gateway->execute(new Sync($model));
+            $gateway->execute($status = new GetHumanStatus($model));
+            /* dd($status); */
+            /* if ($status->isCanceled()) { */
+                $isOk = true;
+            /* } */
         }
 
         if ($isOk) {

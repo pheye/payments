@@ -100,8 +100,26 @@ POST /pay
 
 - `plan_name`: `plan`的名称
 - `gateway_name`(可选): 如果指定就使用对应名称的网关，否则使用默认配置的网关
-- `onetime`: 是否一次性支付，请设置为1，目前提供出来的正式的账号不能循环扣款
+- `onetime`(可选): 是否一次性支付，设置为1表示使用一次性支付，否则在支持循环扣款的网关下将默认使用循环扣款
 
+## 请求退款
+
+```
+PUT /payments/{number}/refund_request
+```
+
+前端发起退款请求(如果env中存在ADMIN_EMAIL，并且是系统中的用户，则该用户会收到退款申请的通知邮件)
+
+## 取消订阅
+
+```
+POST subscription/{id}/cancel
+```
+
+## 票据下载
+
+## 优惠券
+(待补充)
 
 # 支付的网关类型
 
@@ -110,6 +128,25 @@ paypal_express_checkout Paypal EC
 zhongwaibao 中外宝
 ```
 
+# 命令
+
+```
+payment:invoice 生成票据
+payment:refund 退款
+payment:sync-payments 同步订单
+payment:cancel 取消订阅
+```
+
 # 其他
 ### 事件
 `Pheye\Payments\Events\PayedEvent`:在每次支付完成后，会执行`event(new PayedEvent($payment))`抛出支付完成的事件，以便应用程序可根据自身需要做些额外操作
+
+取消事件 (待补充)
+
+退款事件（待补充)
+
+### 注意点
+1. 当循环扣款，Plan中的`amount`和`setup_fee`都必须有值，前者控制每次循环扣款的费用，`setup_fee`则控制首次付款的费用;
+
+# TODO
+1. ADMIN_EMAIL的优化

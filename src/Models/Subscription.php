@@ -107,6 +107,8 @@ class Subscription extends Model
 
     public function canCancel()
     {
+        if (!$this->agreement_id)
+            return false;
         // 未完成的订阅和已经取消的不允许取消，其他的都允许取消
         if ($this->status == Subscription::STATE_CREATED || $this->status == Subscription::STATE_CANCLED)
             return false;
