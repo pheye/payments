@@ -17,9 +17,10 @@ use Stripe\Stripe;
 use Illuminate\Console\Command;
 use Carbon\Carbon;
 use Cache;
-use App\Jobs\SyncPaymentsJob;
+use Pheye\Payments\Jobs\SyncPaymentsJob;
 use Pheye\Payments\Notifications\RefundRequestNotification;
 use Pheye\Payments\Notifications\CancelSubOnSyncNotification;
+use Payum\Paypal\ExpressCheckout\Nvp\Request\Api\TransactionSearch;
 use App\Exceptions\GenericException;
 use Mpdf\Mpdf;
 use Storage;
@@ -116,6 +117,8 @@ class PaymentService implements PaymentServiceContract
                 case PaymentService::LOG_ERROR:
                     $this->logger->error($msg);
                     break;
+                default:
+                    $this->logger->comment($msg);
             }
         } else {
             switch ($level) {
@@ -497,13 +500,23 @@ class PaymentService implements PaymentServiceContract
 
     /**
      * 同步Paypal EC循环扣款的订单
+     * @warning 只考虑5年内的订单
      */
     public function syncPaypalECPayments(Subscription $subscription)
     {
         if (!$subscription->agreement_id)
             return;
         $this->log("sync {$subscription->agreement_id}");
-        
+        $payum = app('payum');
+        $storage = $payum->getStorage('Payum\Core\Model\ArrayObject');
+        $model = $storage->create();
+        $model['PROFILEID'] = $subscription->agreement_id;
+        $model['STARTDATE'] = Carbon::now()->subYears(5)->toIso8601String();
+        $storage->update($model);
+        $gateway = $payum->getGateway('paypal_ec');
+        $gateway->execute($status = new TransactionSearch($model));
+        $model = $status->getFirstModel();
+        dd($model);
     }
 
     /**
@@ -528,8 +541,10 @@ class PaymentService implements PaymentServiceContract
             switch ($item->gatewayConfig->factory_name) {
             case GatewayConfig::FACTORY_PAYPAL_REST:
                 $this->syncPaypalRestPayments($item);
+                break;
             case GatewayConfig::FACTORY_PAYPAL_EXPRESS_CHECKOUT:
                 $this->syncPaypalECPayments($item);
+                break;
             }
         }
     }

@@ -3,9 +3,8 @@
 namespace Pheye\Payments\Console\Commands;
 
 use Illuminate\Console\Command;
-use App\Contracts\PaymentService;
-use App\Subscription;
-use Payum\Paypal\ExpressCheckout\Nvp\Request\Api\TransactionSearch;
+use Pheye\Payments\Contracts\PaymentService;
+use Pheye\Payments\Models\Subscription;
 use Carbon\Carbon;
 
 class SyncPaymentsCommand extends Command
@@ -41,7 +40,7 @@ class SyncPaymentsCommand extends Command
      */
     public function handle()
     {
-        $service = app(\Pheye\Payments\Contracts\PaymentService::class);
+        $service = app(PaymentService::class);
         $force = $this->option('force');
         $agreeId = $this->argument('agreement-id');
         $gateways = [];
@@ -49,17 +48,16 @@ class SyncPaymentsCommand extends Command
         if ($force) {
             $service->setParameter(PaymentService::PARAMETER_FORCE, true);
             $this->info("force flag set");
+        } 
+        $sub = null;
+        if ($agreeId) {
+            $sub = Subscription::where('agreement_id', $agreeId)->first(); 
+            if (!$sub) {
+                $this->error("$agreeId not found");
+                return;
+            }
         }
-        $payum = app('payum');
-        $storage = $payum->getStorage('Payum\Core\Model\ArrayObject');
-        $model = $storage->create();
-        $model['PROFILEID'] = 'I-JKNM0USBH2L7';
-        $model['STARTDATE'] = Carbon::now()->subYear()->toIso8601String();
-        $storage->update($model);
-        $gateway = $payum->getGateway('paypal_ec');
-        $gateway->execute(new TransactionSearch($model));
-        dd($model);
         $service->setLogger($this);
-        $service->syncPayments($agreeId ? Subscription::where('agreement_id', $agreeId)->first() : null);
+        $service->syncPayments($sub);
     }
 }
