@@ -870,7 +870,17 @@ class SubscriptionController extends PayumController
         /* $recurringPayment['FAILEDINITAMTACTION'] = 'CancelOnFailure'; */
         $recurringPayment['CURRENCYCODE'] = $plan->currency;
         $recurringPayment['BILLINGFREQUENCY'] = $plan->frequency_interval;
-        $recurringPayment['PROFILESTARTDATE'] = date(DATE_ATOM);
+        switch (strtolower($plan->frequency)) {
+        case 'day':
+            $recurringPayment['PROFILESTARTDATE'] = Carbon::now()->addDays($plan->frequency_interval)->toAtomString();
+            break;
+        case 'month':
+            $recurringPayment['PROFILESTARTDATE'] = Carbon::now()->addMonths($plan->frequency_interval)->toAtomString();
+            break;
+        case 'year':
+            $recurringPayment['PROFILESTARTDATE'] = Carbon::now()->addYear()->toAtomString();
+            break;
+        }
         $periodMap = [
             'day' => Api::BILLINGPERIOD_DAY, 
             'month' => Api::BILLINGPERIOD_MONTH,
