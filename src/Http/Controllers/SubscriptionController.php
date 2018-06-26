@@ -872,7 +872,7 @@ class SubscriptionController extends PayumController
 		$gateway->execute(new CreateRecurringPaymentProfile($recurringPayment));
 		$gateway->execute(new Sync($recurringPayment));
         Log::info('subscription', ['sub' => $recurringPayment]);
-        $doneToken = $payum->getTokenFactory()->createToken(Voyager::setting('current_gateway'), $recurringPayment, 'paypal_done');
+        $doneToken = $payum->getTokenFactory()->createToken($token->getGatewayName(), $recurringPayment, 'paypal_done');
         return redirect($doneToken->getTargetUrl());
     }
 
