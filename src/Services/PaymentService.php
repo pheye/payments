@@ -28,6 +28,7 @@ use Log;
 use Payum\Core\Request\Cancel;
 use Payum\Core\Request\Sync;
 use Payum\Core\Request\GetHumanStatus;
+use Payum\Core\Request\Refund as PayumRefund;
 
 class PaymentService implements PaymentServiceContract
 {
@@ -837,7 +838,7 @@ class PaymentService implements PaymentServiceContract
         }
         // 状态转移由Model监听完成
         $refund = new Refund();
-        $refund->amount = $payment->amount;
+        $refund->amount = $amount;
         $refund->note = "";
         $refund->status = Refund::STATE_CREATED;
         $refund->payment()->associate($payment);
@@ -864,17 +865,28 @@ class PaymentService implements PaymentServiceContract
     {
         $amount = $refund->amount;
         $payment = $refund->payment;
-        // TODO:stripe情况
         $this->log("handle refunding {$payment->number}...", PaymentService::LOG_INFO);
         $paypalService = $this->getPaypalService();
         $gatewayConfig = $payment->subscription->gatewayConfig;
         if ($gatewayConfig->factory_name === GatewayConfig::FACTORY_PAYPAL_EXPRESS_CHECKOUT) {
-            // TODO:应该做到自动调用API完成退款
-            Log::info('Paypal EC直接返回退款成功，请到控制台去完成退款');
-            $refund->status = Refund::STATE_ACCEPTED;
-            $refund->save();
-            $refund->payment->client->fixInfoByPayments();
-            return true;
+
+            $payum = app('payum');
+            $model = [];
+            $model['TRANSACTIONID'] = $payment->number;
+            if ($amount != $payment->amount) {
+                $model['REFUNDTYPE'] = 'Partial';
+                $model['AMT'] = $amount;
+            }
+            $gateway = $payum->getGateway($gatewayConfig->gateway_name);
+            $gateway->execute($status = new PayumRefund($model));
+            $model = $status->getFirstModel();
+            if ($model['ACK'] == 'Success' || $model['L_ERRORCODE0'] == 10009) {
+                $this->log("{$payment->number} refunded");
+                $refund->status = Refund::STATE_ACCEPTED;
+                $refund->save();
+                $refund->payment->client->fixInfoByPayments();
+                return true;
+            }
         } else if ($gatewayConfig->factory_name == GatewayConfig::FACTORY_ZHONGWAIBAO) {
             Log::info('信用卡直接返回退款成功，管理员请到对应后台去完成实际退款');
             $refund->status = Refund::STATE_ACCEPTED;
@@ -909,7 +921,7 @@ class PaymentService implements PaymentServiceContract
             dispatch((new SyncPaymentsJob($payment->subscription))->delay(Carbon::now()->addSeconds(10)));
             return true;
         } else {
-            $this->log("refund failed:unsupported gateway");
+            $this->log("refund failed:unsupported gateway {$gatewayConfig->factory_name}");
         }
         return false;    
     }

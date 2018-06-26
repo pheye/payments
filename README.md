@@ -155,3 +155,8 @@ payment:cancel 取消订阅
 # TODO
 1. ADMIN_EMAIL的优化
 2. 考虑到`setup_fee`为0的情况，允许用户免费使用，过几天再扣款
+
+# 技术实现细节
+Paypal EC的退款: https://developer.paypal.com/docs/classic/api/merchant/RefundTransaction_API_Operation_NVP/?mark=RefundTransaction
+Paypal EC的订单获取: https://developer.paypal.com/docs/classic/api/merchant/TransactionSearch_API_Operation_NVP/?mark=TransactionSearch
+
