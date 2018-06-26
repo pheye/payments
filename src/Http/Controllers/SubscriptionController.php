@@ -431,7 +431,7 @@ class SubscriptionController extends PayumController
         } else {
             $storage = $this->getPayum()->getStorage(AgreementDetails::class);
             $agreement = $storage->create();
-            $agreement['PAYMENTREQUEST_0_AMT'] = 0;//$amount; // For an initial amount to be charged please add it here, eg $10 setup fee
+            $agreement['PAYMENTREQUEST_0_AMT'] = $amount; // For an initial amount to be charged please add it here, eg $10 setup fee
             $agreement['L_BILLINGTYPE0'] = Api::BILLINGTYPE_RECURRING_PAYMENTS;
             $agreement['L_BILLINGAGREEMENTDESCRIPTION0'] = $plan->desc;
             $agreement['NOSHIPPING'] = 1;
@@ -546,6 +546,7 @@ class SubscriptionController extends PayumController
         $subscription->quantity = 1;
         $subscription->details = $detail;
         $subscription->status = 'payed';
+        $subscription->buyer_email = $detail['EMAIL'];
         $subscription->save();
 
         $this->paymentService->syncPayments($subscription);
@@ -854,6 +855,7 @@ class SubscriptionController extends PayumController
             abort(500, 'HTTP/1.1 400 Bad Request');
         }
         $agreement = $agreementStatus->getModel();
+        $gateway->execute(new Sync($agreement));
 
         $plan = $agreement->plan;
         $storage = $this->getPayum()->getStorage(RecurringPaymentDetails::class);
@@ -862,15 +864,23 @@ class SubscriptionController extends PayumController
         $recurringPayment['DESC'] = $plan->desc; // Desc must match agreement 'L_BILLINGAGREEMENTDESCRIPTION' in prepare.php
         $recurringPayment['EMAIL'] = $agreement['EMAIL'];
         $recurringPayment['AMT'] = $plan->amount;
-        $recurringPayment['INITAMT'] = $agreement->subscription->setup_fee;
+        // 当使用这种方式去完成初始扣款时，ProfileStatus会处于PendingProfile，这个状态下的
+        // Profile无法cancel或者suspend
+        /* $recurringPayment['INITAMT'] = $agreement->subscription->setup_fee; */
+        /* $recurringPayment['FAILEDINITAMTACTION'] = 'CancelOnFailure'; */
         $recurringPayment['CURRENCYCODE'] = $plan->currency;
         $recurringPayment['BILLINGFREQUENCY'] = $plan->frequency_interval;
         $recurringPayment['PROFILESTARTDATE'] = date(DATE_ATOM);
-        $recurringPayment['BILLINGPERIOD'] = Api::BILLINGPERIOD_DAY;
+        $periodMap = [
+            'day' => Api::BILLINGPERIOD_DAY, 
+            'month' => Api::BILLINGPERIOD_MONTH,
+            'year' =>  Api::BILLINGPERIOD_YEAR
+        ];
+        $recurringPayment['BILLINGPERIOD'] = $periodMap[strtolower($plan->frequency)];
         $recurringPayment->subscription_id = $agreement->subscription_id;
         $recurringPayment->plan_id = $agreement->plan_id;
-		$gateway->execute(new CreateRecurringPaymentProfile($recurringPayment));
-		$gateway->execute(new Sync($recurringPayment));
+        $gateway->execute(new CreateRecurringPaymentProfile($recurringPayment));
+        $gateway->execute(new Sync($recurringPayment));
         Log::info('subscription', ['sub' => $recurringPayment]);
         $doneToken = $payum->getTokenFactory()->createToken($token->getGatewayName(), $recurringPayment, 'paypal_done');
         return redirect($doneToken->getTargetUrl());
@@ -878,10 +888,12 @@ class SubscriptionController extends PayumController
 
     protected function afterPay (Request $request, $payment)
     {
-        $payment->client->fixInfoByPayments();
+        if ($payment) {
+            $payment->client->fixInfoByPayments();
 
-        dispatch(new GenerateInvoiceJob(new Collection([$payment])));//入参类型为Collection  
-        event(new PayedEvent($payment));
+            dispatch(new GenerateInvoiceJob(new Collection([$payment])));//入参类型为Collection  
+            event(new PayedEvent($payment));
+        }
         $redirectUrl = Voyager::setting('payed_redirect') ? : '/';
         if ($request->expectsJson()) {
             return response()->json(['redirect' => $redirectUrl]);

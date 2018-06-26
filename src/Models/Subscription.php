@@ -14,7 +14,7 @@ class Subscription extends Model
     {
         if (is_null($value))
             return [];
-        return $value;
+        return json_decode($value, true);
     }
     /**
      * 订阅刚创建，未完成时的状态,每个用户应最多只有一个处于该状态的订阅

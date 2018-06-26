@@ -145,8 +145,13 @@ payment:cancel 取消订阅
 
 退款事件（待补充)
 
+### 异常处理
+`Pheye\Payments\Exceptions\BusinessErrorException`
+(待补充)
+
 ### 注意点
 1. 当循环扣款，Plan中的`amount`和`setup_fee`都必须有值，前者控制每次循环扣款的费用，`setup_fee`则控制首次付款的费用;
 
 # TODO
 1. ADMIN_EMAIL的优化
+2. 考虑到`setup_fee`为0的情况，允许用户免费使用，过几天再扣款

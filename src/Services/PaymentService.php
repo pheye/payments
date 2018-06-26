@@ -20,7 +20,7 @@ use Pheye\Payments\Jobs\SyncPaymentsJob;
 use Pheye\Payments\Notifications\RefundRequestNotification;
 use Pheye\Payments\Notifications\CancelSubOnSyncNotification;
 use Payum\Paypal\ExpressCheckout\Nvp\Request\Api\TransactionSearch;
-use App\Exceptions\GenericException;
+use Pheye\Payments\Exceptions\BusinessErrorException;
 use Mpdf\Mpdf;
 use Storage;
 use Voyager;
@@ -511,16 +511,66 @@ class PaymentService implements PaymentServiceContract
             return;
         $this->log("sync {$subscription->agreement_id}");
         $payum = app('payum');
-        $storage = $payum->getStorage('Payum\Core\Model\ArrayObject');
-        $model = $storage->create();
+        $gateway = $payum->getGateway($subscription->gatewayConfig->gateway_name);
+        // 首次付款的支付账单
+        $model['TOKEN'] = $subscription->details['TOKEN'];
+        $gateway->execute($status = new Sync($model));
+        $model = $status->getFirstModel();
+        if (isset($model['TRANSACTIONID'])) {
+            $transactionId = $model['TRANSACTIONID'];
+            $model = [];
+            $model['STARTDATE'] = Carbon::now()->subYears(5)->toIso8601String();
+            $model['TRANSACTIONID'] = $transactionId;
+            $gateway->execute($status = new TransactionSearch($model));
+            $model = $status->getFirstModel();
+            $number = $model['TRANSACTIONID'];
+            if ($model['L_TYPE0'] == 'Payment') {
+                $idx = 0;
+            } else {
+                $idx = 1;
+            }
+            // 重复代码过多，必须优化
+            $payment = Payment::firstOrNew(['number' => $number]);
+            $payment->number = $number;
+            $payment->description = '';
+            $payment->buyer_email = $model["L_EMAIL{$idx}"];
+            $payment->client_id = $subscription->user->id;
+            $payment->client_email = $subscription->user->email;
+            $payment->amount = $model["L_AMT{$idx}"];
+            $payment->currency = $model["L_CURRENCYCODE{$idx}"];
+            $payment->subscription()->associate($subscription);
+            $payment->details = (array)$model;
+            $payment->status = strtolower($model["L_STATUS{$idx}"]);
+            $payment->created_at = Carbon::createFromTimeString($model["L_TIMESTAMP{$idx}"]);
+
+            switch ($payment->status) {
+            case 'completed':
+                if ($payment->refund && $payment->refund->isRefunding()) {
+                    $payment->status = Payment::STATE_REFUNDING;
+                    $this->log("the payment is refunding, change to `refunding` instead of `completed`", PaymentService::LOG_INFO);
+                } else {
+                    $payment->status = Payment::STATE_COMPLETED;
+                }
+                break;
+            }
+            $payment->save();
+            if ($payment->status == Payment::STATE_COMPLETED) {
+                $this->generateInvoice($number);
+            }
+        }
+        // 循环扣款的支付账单
+        $model = [];
         $model['PROFILEID'] = $subscription->agreement_id;
         $model['STARTDATE'] = Carbon::now()->subYears(5)->toIso8601String();
-        $storage->update($model);
-        $gateway = $payum->getGateway($subscription->gatewayConfig->gateway_name);
         $gateway->execute($status = new TransactionSearch($model));
         $model = $status->getFirstModel();
         $idx = 1;
+        Log::debug('test', ['data' => (array)$model]);
         while (isset($model["L_TRANSACTIONID{$idx}"])) {
+            if (!isset($model["L_EMAIL{$idx}"])) {
+                $idx++;
+                continue;
+            }
             $number = $model["L_TRANSACTIONID{$idx}"];
             $payment = Payment::firstOrNew(['number' => $number]);
             $payment->number = $number;
@@ -532,9 +582,22 @@ class PaymentService implements PaymentServiceContract
             $payment->currency = $model["L_CURRENCYCODE{$idx}"];
             $payment->subscription()->associate($subscription);
             $payment->details = (array)$model;
-            $payment->status = $model["L_STATUS{$idx}"];
+            $payment->status = strtolower($model["L_STATUS{$idx}"]);
             $payment->created_at = Carbon::createFromTimeString($model["L_TIMESTAMP{$idx}"]);
             $payment->save();
+            switch ($payment->status) {
+            case 'completed':
+                if ($payment->refund && $payment->refund->isRefunding()) {
+                    $payment->status = Payment::STATE_REFUNDING;
+                    $this->log("the payment is refunding, change to `refunding` instead of `completed`", PaymentService::LOG_INFO);
+                } else {
+                    $payment->status = Payment::STATE_COMPLETED;
+                }
+                break;
+            }
+            if ($payment->status == Payment::STATE_COMPLETED) {
+                $this->generateInvoice($number);
+            }
             $idx++;
         }
     }
@@ -733,15 +796,16 @@ class PaymentService implements PaymentServiceContract
 
         if ($gatewayConfig->factory_name == GatewayConfig::FACTORY_PAYPAL_EXPRESS_CHECKOUT) {
             $payum = app('payum');
-            $model = json_decode($subscription->details, true);
+            $model = $subscription->details;
             $gateway = $payum->getGateway($subscription->gatewayConfig->gateway_name);
             $gateway->execute(new Cancel($model));
-            $gateway->execute(new Sync($model));
-            $gateway->execute($status = new GetHumanStatus($model));
-            /* dd($status); */
-            /* if ($status->isCanceled()) { */
+            $gateway->execute($status = new Sync($model));
+            /* $gateway->execute($status = new GetHumanStatus($model)); */
+            $model = $status->getFirstModel();
+            if ($model['STATUS'] == 'Cancelled') {
+                $subscription->canceled_at = Carbon::now();
                 $isOk = true;
-            /* } */
+            }
         }
 
         if ($isOk) {
@@ -998,21 +1062,20 @@ class PaymentService implements PaymentServiceContract
         // 默认不强制生成
         if (empty($transactionId)) {
             // 交易id的格式不符合
-            throw new GenericException($this, 'unknown param on generateInvoice');
+            throw new BusinessErrorException('missing parameter');
         }
         $payment = Payment::where('number', $transactionId)->where('status', Payment::STATE_COMPLETED)->first();
-
         if (!$payment) {
             // 交易的状态不对或者查不到交易
-            throw new GenericException($this, "payment is invalid on use transaction id: $transactionId,maybe status is not completed or isn't exists");
+            throw new BusinessErrorException("payment is invalid on use transaction id: $transactionId,maybe status is not completed or isn't exists");
         }
         /* if ($payment->gateway != PaymentService::GATEWAY_PAYPAL_EC) { */
         /*     //暂时不处理非paypal订单 */
-        /*     throw new GenericException($this, "this payment(transaction id: $transactionId) is stripe payment,ignore"); */
+        /*     throw new BusinessErrorException($this, "this payment(transaction id: $transactionId) is stripe payment,ignore"); */
         /* } */
         if (!empty($payment->invoice_id) && !$force) {
             // 该交易的invoice_id不为空，则已经生成过
-            throw new GenericException($this, "cannot generate this invoice with transaction id: $transactionId because it was generated.");
+            return $payment->invoice_id;
         }
         if ($plan = $payment->subscription->getPlan()) {
             $packageName = $plan->display_name;
