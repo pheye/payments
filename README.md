@@ -108,13 +108,15 @@ POST /pay
 PUT /payments/{number}/refund_request
 ```
 
-前端发起退款请求(如果env中存在ADMIN_EMAIL，并且是系统中的用户，则该用户会收到退款申请的通知邮件)
+前端发起退款请求(如果env中存在`ADMIN_EMAIL`，并且是系统中的用户，则该用户会收到退款申请的通知邮件)
 
 ## 取消订阅
 
 ```
 POST subscription/{id}/cancel
 ```
+
+前端发起取消订阅
 
 ## 票据下载
 
@@ -139,11 +141,71 @@ payment:cancel 取消订阅
 
 # 其他
 ### 事件
-`Pheye\Payments\Events\PayedEvent`:在每次支付完成后，会执行`event(new PayedEvent($payment))`抛出支付完成的事件，以便应用程序可根据自身需要做些额外操作
+支付完成事件：`Pheye\Payments\Events\PayedEvent`, 在每次支付完成，会抛出此事件。`$event->payment`可取出对应的订单。
 
-取消事件 (待补充)
+取消完成事件：`Pheye\Payments\Events\CancelledEvent`，取消订阅完成，会抛出此事件。`$event->subscription`可取出对应的订阅
 
-退款事件（待补充)
+退款完成事件：`Pheye\Payments\Events\RefundedEvent`，退款完成，会抛出此事件。`$event->refund`可取出退款申请单
+
+为方便对事件的处理，包提供了默认的事件订阅器：`Pheye\Payments\Listeners\PaymentEventSubscriber`。
+
+当你需要处理事件时，可按如下方式修改：
+
+1. 创建自己的`App\Listeners\PaymentEventSubscriber`:
+
+```
+<?php
+ 
+namespace App\Listeners;
+
+use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Pheye\Payments\Models\Payment;
+use Pheye\Payments\Events\PayedEvent;
+use Pheye\Payments\Events\RefundedEvent;
+use Pheye\Payments\Events\CancelledEvent;
+use Log;
+
+class PaymentEventSubscriber extends \Pheye\Payments\Listeners\PaymentEventSubscriber
+{
+
+    /**
+     * 处理支付完成事件
+     */
+    public function onPayed(PayedEvent $event)
+    {
+        $payment = $event->payment;
+        Log::info('on payed test ' . $payment->number);
+    }
+
+    /**
+     * 处理退款完成事件
+     */
+    public function onRefunded(RefundedEvent $event)
+    {
+        $refund = $event->refund;
+        Log::info('on refuned test '.  $refund->payment->number);
+    }
+
+    /**
+     * 处理取消订阅事件
+     */
+    public function onCancelled(CancelledEvent $event)
+    {
+        $sub = $event->subscription;
+        Log::info('on cancellead test '.  $sub->agreement_id);
+    }
+}
+```
+
+2. 添加事件订阅器到`app/Providers/EventServiceProvider.php`:
+
+```
+    protected $subscribe = [
+        // ...
+        'App\Listeners\PaymentEventSubscriber',
+    ];
+```
 
 ### 异常处理
 `Pheye\Payments\Exceptions\BusinessErrorException`
@@ -155,6 +217,7 @@ payment:cancel 取消订阅
 # TODO
 1. ADMIN_EMAIL的优化
 2. 考虑到`setup_fee`为0的情况，允许用户免费使用，过几天再扣款
+3. 循环扣款的订单同步文档说明
 
 # 技术实现细节
 Paypal EC的退款: https://developer.paypal.com/docs/classic/api/merchant/RefundTransaction_API_Operation_NVP/?mark=RefundTransaction

@@ -29,6 +29,8 @@ use Payum\Core\Request\Cancel;
 use Payum\Core\Request\Sync;
 use Payum\Core\Request\GetHumanStatus;
 use Payum\Core\Request\Refund as PayumRefund;
+use Pheye\Payments\Events\RefundedEvent;
+use Pheye\Payments\Events\CancelledEvent;
 
 class PaymentService implements PaymentServiceContract
 {
@@ -814,6 +816,7 @@ class PaymentService implements PaymentServiceContract
             $subscription->save();
 
             $this->checkSubscription($subscription);
+            event(new CancelledEvent($subscription));
         }
         return $isOk;
     }
@@ -863,11 +866,15 @@ class PaymentService implements PaymentServiceContract
      */
     public function refund(Refund $refund)
     {
+        if ($refund->status == Refund::STATE_ACCEPTED) {
+            return true;
+        }
         $amount = $refund->amount;
         $payment = $refund->payment;
         $this->log("handle refunding {$payment->number}...", PaymentService::LOG_INFO);
         $paypalService = $this->getPaypalService();
         $gatewayConfig = $payment->subscription->gatewayConfig;
+        $refunded = false;
         if ($gatewayConfig->factory_name === GatewayConfig::FACTORY_PAYPAL_EXPRESS_CHECKOUT) {
 
             $payum = app('payum');
@@ -885,14 +892,14 @@ class PaymentService implements PaymentServiceContract
                 $refund->status = Refund::STATE_ACCEPTED;
                 $refund->save();
                 $refund->payment->client->fixInfoByPayments();
-                return true;
+                $refunded = true;
             }
         } else if ($gatewayConfig->factory_name == GatewayConfig::FACTORY_ZHONGWAIBAO) {
             Log::info('信用卡直接返回退款成功，管理员请到对应后台去完成实际退款');
             $refund->status = Refund::STATE_ACCEPTED;
             $refund->save();
             $refund->payment->client->fixInfoByPayments();
-            return true;
+            $refunded = true;
         } else if ($gatewayConfig->factory_name === GatewayConfig::FACTORY_PAYPAL_REST && !$gatewayConfig->config['checkout']) {
             // 退款成功后，应该同步该订单的状态，同时及时修正用户权限
             $paypalRefund= $paypalService->refund($payment->number, $payment->currency, $amount);
@@ -919,11 +926,14 @@ class PaymentService implements PaymentServiceContract
             // 当处于pending时，10秒后同步防止钱退了，没将用户权限切回去
             // 或者退完成了，但是在handleRefundedPayment取消用户订阅时跟Paypal通信出错
             dispatch((new SyncPaymentsJob($payment->subscription))->delay(Carbon::now()->addSeconds(10)));
-            return true;
+            $refunded = true;
         } else {
             $this->log("refund failed:unsupported gateway {$gatewayConfig->factory_name}");
         }
-        return false;    
+        if ($refunded) {
+            event(new RefundedEvent($refund));
+        }
+        return $refunded; 
     }
     /**
      * @param 参数是paypal买家邮箱

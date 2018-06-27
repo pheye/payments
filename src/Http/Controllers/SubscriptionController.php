@@ -672,10 +672,11 @@ class SubscriptionController extends PayumController
         if (!$this->paymentService->cancel($sub)) {
             return ['code' => -1, 'desc' => "cancel failed"];
         }
-        dispatch(new LogAction(ActionLog::ACTION_USER_CANCEL, $sub->toJson(), "", $user->id));
-        // 用户申请退订后发送退订邮件到用户邮箱
-        // Todo 通用邮件模板合并进去后需要使用通用jOb发送邮件，并删除该多余的job
-        dispatch(new SendUnsubscribeMail($user));
+        // TODO: 下面的操作应放在CancelledEvent中去处理
+        /* dispatch(new LogAction(ActionLog::ACTION_USER_CANCEL, $sub->toJson(), "", $user->id)); */
+        /* // 用户申请退订后发送退订邮件到用户邮箱 */
+        /* // Todo 通用邮件模板合并进去后需要使用通用jOb发送邮件，并删除该多余的job */
+        /* dispatch(new SendUnsubscribeMail($user)); */
         return ['code' => 0, 'desc' => 'success'];
     }
 
