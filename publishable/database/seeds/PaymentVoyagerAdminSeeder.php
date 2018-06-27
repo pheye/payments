@@ -2,7 +2,7 @@
 
 use Illuminate\Database\Seeder;
 
-class VoyagerAdminSeeder extends Seeder
+class PaymentVoyagerAdminSeeder extends Seeder
 {
 
     /**
@@ -1122,6 +1122,18 @@ class VoyagerAdminSeeder extends Seeder
     public function seedMenus()
     {
         // menu items移植
+        $parentItem = [
+            'color' => '#000000',
+            'icon_class' => 'voyager-dollar',
+            'menu_id' => 1,
+            'order' => 5,
+            'parameters' => '',
+            'parent_id' => NULL,
+            'route' => NULL,
+            'target' => '_self',
+            'title' => '支付管理',
+            'url' => '#',
+        ];
         $items = [
             array (
                 'color' => '#000000',
@@ -1186,8 +1198,13 @@ class VoyagerAdminSeeder extends Seeder
                 'url' => '',
             ),
         ];
+
+        // 插入父级菜单
+        \DB::table('menu_items')->where('route', $parentItem['title'])->delete();
+        $parentId = \DB::table('menu_items')->insertGetId($parentItem);
         foreach ($items as $key => $row) {
             \DB::table('menu_items')->where('route', $row['route'])->delete();
+            $items[$key]['parent_id'] = $parentId;
         }
         \DB::table('menu_items')->insert($items);
     }

@@ -39,7 +39,7 @@ $ php artisan migrate
 填充`Voyager`后台菜单:
 
 ```
-$ php artisan db:seed --class=VoyagerAdminSeeder
+$ php artisan db:seed --class=PaymentVoyagerAdminSeeder
 ```
 
 至此，基本配置就完成了。

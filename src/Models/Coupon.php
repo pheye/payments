@@ -3,6 +3,7 @@
 namespace Pheye\Payments\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\User;
 
 class Coupon extends Model
 {
