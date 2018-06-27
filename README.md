@@ -120,6 +120,13 @@ POST subscription/{id}/cancel
 
 ## 票据下载
 
+```
+GET invoice/{invoice_id}
+```
+
+下载票据
+
+
 ## 优惠券
 (待补充)
 
@@ -160,7 +167,6 @@ namespace App\Listeners;
 
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Contracts\Queue\ShouldQueue;
-use Pheye\Payments\Models\Payment;
 use Pheye\Payments\Events\PayedEvent;
 use Pheye\Payments\Events\RefundedEvent;
 use Pheye\Payments\Events\CancelledEvent;
@@ -221,5 +227,6 @@ class PaymentEventSubscriber extends \Pheye\Payments\Listeners\PaymentEventSubsc
 
 # 技术实现细节
 Paypal EC的退款: https://developer.paypal.com/docs/classic/api/merchant/RefundTransaction_API_Operation_NVP/?mark=RefundTransaction
+
 Paypal EC的订单获取: https://developer.paypal.com/docs/classic/api/merchant/TransactionSearch_API_Operation_NVP/?mark=TransactionSearch
 

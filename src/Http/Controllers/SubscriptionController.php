@@ -9,7 +9,7 @@ use Log;
 use App\User;
 use App\Webhook;
 use App\ActionLog;
-use Pheye\Payments\Models\Role;
+use TCG\Voyager\Models\Role;
 use Pheye\Payments\Models\Plan;
 use Pheye\Payments\Models\Subscription;
 use Pheye\Payments\Models\GatewayConfig;
@@ -251,11 +251,11 @@ class SubscriptionController extends PayumController
     public function plans()
     {
         $items = Role::where('plan', '<>', null)->get();
-        /* $items = Role::with('permissions', 'policies')->where('plan', '<>', null)->get(); */
-        
+
         foreach ($items as $key => $item) {
-            /* $item->groupPermissions = $item->permissions->groupBy('table_name'); */
-            $item->append('plans');
+            $annually = Plan::where('name', '=', $item->plan)->first();
+            $monthly = Plan::where('name', '=', "{$item->plan}_monthly")->first();
+            $item['plans'] = ["annually" => $annually, "monthly" => $monthly];
         }
         return $items;
     }
