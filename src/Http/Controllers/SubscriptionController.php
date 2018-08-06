@@ -852,10 +852,10 @@ class SubscriptionController extends PayumController
         $agreementStatus = new GetHumanStatus($token);
         $gateway->execute($agreementStatus);
 
-        if (!$agreementStatus->isCaptured()) {
-            abort(500, 'HTTP/1.1 400 Bad Request');
-        }
         $agreement = $agreementStatus->getModel();
+        if (!$agreementStatus->isCaptured()) {
+            abort(500, $agreement['L_LONGMESSAGE0'] ? : 'HTTP/1.1 400 Bad Request');
+        }
         $gateway->execute(new Sync($agreement));
 
         $plan = $agreement->plan;
