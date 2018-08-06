@@ -847,15 +847,19 @@ class SubscriptionController extends PayumController
         $token = $payum->getHttpRequestVerifier()->verify($request);
         $identity = $token->getDetails();
         $model = $this->getPayum()->getStorage($identity->getClass())->find($identity->getId());
-        $payum->getHttpRequestVerifier()->invalidate($token);
         $gateway = $payum->getGateway($token->getGatewayName());
         $agreementStatus = new GetHumanStatus($token);
         $gateway->execute($agreementStatus);
 
         $agreement = $agreementStatus->getModel();
-        if (!$agreementStatus->isCaptured()) {
-            abort(500, $agreement['L_LONGMESSAGE0'] ? : 'HTTP/1.1 400 Bad Request');
+
+        if ($agreementStatus->isCanceled()) {
+            return redirect('/');
         }
+        if (!$agreementStatus->isCaptured()) {
+            abort(500, isset($agreement['L_LONGMESSAGE0']) ? $agreement['L_LONGMESSAGE0'] : 'HTTP/1.1 400 Bad Request');
+        }
+        $payum->getHttpRequestVerifier()->invalidate($token);
         $gateway->execute(new Sync($agreement));
 
         $plan = $agreement->plan;
