@@ -93,20 +93,21 @@ class SubscriptionController extends PayumController
     {
         $coupon = Coupon::where('code', $code)->first();
         if (!$coupon) {
-            return false;
+            throw new BusinessErrorException('no such coupon');
         }
-        if ($price < $coupon->discount) {
-            return false;
+        $discount = $coupon->getDiscountAmount($price);
+        if ($price < $discount) {
+            throw new BusinessErrorException("Price $price must bigger than {$coupon->discount}");
         }
         if ($coupon->used >= $coupon->uses) {
-            return false;
+            throw new BusinessErrorException('coupon has exhausted');
         }
         if (!$coupon->start  || !$coupon->end) {
-            return false;
+            throw new BusinessErrorException('invalid coupon');
         }
         $now = new Carbon();
         if ($now->lt(new Carbon($coupon->start)) || $now->gt(new Carbon($coupon->end))) {
-            return false;
+            throw new BusinessErrorException('coupon has expired');
         }
         return $coupon;
     }
@@ -138,18 +139,13 @@ class SubscriptionController extends PayumController
         $discount = 0;
         // 如果存在对应的优惠券就使用
         if ($req->has('coupon') && $req->coupon) {
-            $coupon = $this->checkCoupon($req->coupon, $plan->amount);
+            $coupon = $this->checkCoupon($req->coupon, $plan->setup_fee);
             if (!$coupon) {
-                return redirect()->back()->withErrors(['message' => 'Invalid coupon']);
+                throw new BusinessErrorException('invalid coupon');
             }
-            $discount = $coupon->getDiscountAmount($plan->amount);
-            /* if ($coupon->type == 0) { */
-            /*     $discount = floor($plan->amount * $coupon->discount / 100); */
-            /* } else if ($coupon->type == 1) { */
-            /*     $discount = $coupon->discount; */
-            /* } */
+            $discount = $coupon->getDiscountAmount($plan->setup_fee);
             if (Subscription::where('quantity', '>', 0)->where('user_id', $user->id)->where('coupon_id', $coupon->id)->count() >= $coupon->customer_uses) {
-                return redirect()->back()->withErrors(['message' => 'You have used the coupon']);
+                throw new BusinessErrorException('You have used the coupon');
             }
         }
         if ($req->has('gateway_name')) {

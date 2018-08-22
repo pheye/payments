@@ -557,6 +557,8 @@ class PaymentService implements PaymentServiceContract
                 break;
             }
             $payment->save();
+            // TODO:每次同步都重新计算一次优惠券其实是没必要的，应优化
+            $this->calcCouponUsed($subscription);
             if ($payment->status == Payment::STATE_COMPLETED) {
                 $this->generateInvoice($number);
             }
@@ -598,6 +600,8 @@ class PaymentService implements PaymentServiceContract
                 }
                 break;
             }
+            // TODO:每次同步都重新计算一次优惠券其实是没必要的，应优化
+            $this->calcCouponUsed($subscription);
             if ($payment->status == Payment::STATE_COMPLETED) {
                 $this->generateInvoice($number);
             }
@@ -675,12 +679,9 @@ class PaymentService implements PaymentServiceContract
     }
 
     /**
-     * {@inheritDoc}
+     * 用户一旦使用coupon，就需要对coupon的使用情况重新计算
      */
-    public function handlePayment(Payment $payment)
-    {
-        $subscription = $payment->subscription;
-
+    private function calcCouponUsed(Subscription $subscription) {
         if ($subscription->coupon_id > 0) {
             $newUsed = $subscription->coupon->calcUsed();
             if ($subscription->coupon->used != $newUsed) {
@@ -688,6 +689,16 @@ class PaymentService implements PaymentServiceContract
                 $subscription->coupon->save();
             }
         }
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function handlePayment(Payment $payment)
+    {
+        $subscription = $payment->subscription;
+
+        $this->calcCouponUsed($subscription);
         if ($subscription->status == Subscription::STATE_PAYED) {
             $this->log("You haved payed for the subscription, check if it's the next payment");
             return $subscription->user->fixInfoByPayments();
