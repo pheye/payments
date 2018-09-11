@@ -11,6 +11,7 @@ class GatewayConfig extends Model
     const FACTORY_ZHONGWAIBAO = "zhongwaibao";
     const FACTORY_STRIPE = "stripe";
     const FACTORY_OFFLINE = "offline";
+    const FACTORY_ALIPAY = "alipay";
 
     protected $casts = [
         'config' => 'json'
@@ -24,7 +25,9 @@ class GatewayConfig extends Model
             return 'Paypal';
         case static::FACTORY_ZHONGWAIBAO:
             return 'Credit';
-        case statis::FACTORY_OFFLINE:
+        case static::FACTORY_ALIPAY:
+            return 'Alipay';
+        case static::FACTORY_OFFLINE:
             return 'Offline';
         default:
             return 'Unknown';

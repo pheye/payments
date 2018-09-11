@@ -38,7 +38,9 @@ use Pheye\Payments\Exceptions\BusinessErrorException;
 use Pheye\Payments\Events\PayedEvent;
 use Pheye\Payments\Jobs\GenerateInvoiceJob;
 use Voyager;
+use Cache;
 use Illuminate\Support\Collection;
+use Yansongda\Pay\Pay;
 
 class SubscriptionController extends PayumController
 {
@@ -174,7 +176,7 @@ class SubscriptionController extends PayumController
         $subscription->gateway_id = $gatewayConfig->id;
         $subscription->status = Subscription::STATE_CREATED;
         $subscription->tag = Subscription::TAG_DEFAULT;
-        $subscription->skype = $req->input('skype', ''); // 获取skype字段
+        // $subscription->skype = $req->input('skype', ''); // 获取skype字段
         $subscription->save();
 
         if ($req->has('payType') && $req->payType == 'stripe') {
@@ -184,7 +186,10 @@ class SubscriptionController extends PayumController
             return $this->preparePaypalCheckout($req, $subscription, $plan, $gatewayConfig);    
         } else if ($gatewayConfig->factory_name == GatewayConfig::FACTORY_ZHONGWAIBAO) {
             return $this->payByZhongwaibao($req, $plan, $subscription, $gatewayConfig);
+        } else if ($gatewayConfig->factory_name == GatewayConfig::FACTORY_ALIPAY) {
+            return $this->payByAlipay($subscription, $plan, $gatewayConfig);
         }
+
         $service = $this->paymentService->getRawService(PaymentService::GATEWAY_PAYPAL);
         $approvalUrl = $service->createPayment($plan, $coupon ? ['setup_fee' => $plan->amount - $discount] : null);
         // 由于此时订阅的相关ID没产生，所以没办法通过保存ID，此时就先通过token作为中转
@@ -729,6 +734,32 @@ class SubscriptionController extends PayumController
         return $result;
     }
 
+
+    /**
+     * 使用支付宝支付
+     */
+    public function payByAlipay(Subscription $subscription, Plan $plan, GatewayConfig $gatewayConfig) 
+    {
+        $number = time();
+        $order = [
+            'out_trade_no' => $number,
+            'total_amount' => $subscription->setup_fee,
+            'subject'      => $plan->desc,
+        ]; 
+        $config = $gatewayConfig->config;
+        if (!isset($config['notify_url'])) {
+            $config['notify_url'] = config('app.url') . '/payment/alipay/notify';
+        }
+        if (!isset($config['return_url'])) {
+            $config['return_url'] = config('app.url') . '/payment/alipay/done';
+        }
+    
+        $alipay = Pay::alipay($config)->web($order);
+        // 1小时内完成支付
+        Cache::put("alipay.$number", ['subscription_id' => $subscription->id, 'config' => $config], 3600);
+        return $alipay->send();
+    }
+
     /**
      * 使用中外宝支付
      */
@@ -911,4 +942,89 @@ class SubscriptionController extends PayumController
         }
         return redirect($redirectUrl);
     }
+
+    /**
+     * 支付宝支付完成
+     */
+    public function onAlipayDone(Request $request)
+    {
+        $number = $request->out_trade_no;
+        $cache = Cache::get("alipay.$number");
+        if (!$cache) {
+            throw new BusinessErrorException('订单已失效');
+        }
+        $config = $cache['config'];
+        $subscription = Subscription::find($cache['subscription_id']);
+        $data = Pay::alipay($config)->verify();
+
+        if (!$data) {
+            throw new BusinessErrorException('验签失败');
+        }
+        Log::info('data', ['data' => $data]);  
+
+        // TODO:大量的重复代码,没有去优化，会积累软件债务
+        $subscription->quantity= 1;
+        $subscription->status = Subscription::STATE_PAYED;
+        $subscription->save();
+
+        $plan = $subscription->getPlan();
+        $user = $subscription->user;
+
+        $amount = $data['total_amount'];
+
+        // 成功需要创建Payment之类的订单
+        $payment = new OurPayment();
+        $payment->number = $request->trade_no;
+        $payment->description = "";
+        $payment->client_id = $user->id;
+        $payment->client_email = $user->email;
+        $payment->amount = $amount;
+        $payment->currency = $plan->currency;
+        $payment->details = $data;
+        $payment->buyer_email = $user->email;
+        $payment->status = OurPayment::STATE_COMPLETED;
+        $payment->details = $data;
+        $payment->created_at = Carbon::now();
+
+        $payment->subscription()->associate($subscription);
+        $payment->save();
+
+        $user->fixInfoByPayments();
+
+        dispatch(new GenerateInvoiceJob(new Collection([$payment])));//入参类型为Collection  
+        event(new PayedEvent($payment));
+        $redirectUrl = Voyager::setting('payed_redirect') ? : '/';
+        if ($request->expectsJson()) {
+            return response()->json(['redirect' => $redirectUrl]);
+        }
+        Cache::forget("alipay.$number");
+        return redirect($redirectUrl);
+    }
+
+    /**
+     * 支付宝支付后回调通知
+     */
+    public function onAlipayNotify(Request $request)
+    {
+        Log::info('alipay on notify', ['req' => $request->all()]);
+        /* $alipay = Pay::alipay($this->config); */
+
+        /* try{ */
+        /*     $data = $alipay->verify(); // 是的，验签就这么简单！ */
+
+        /*     // 请自行对 trade_status 进行判断及其它逻辑进行判断，在支付宝的业务通知中，只有交易通知状态为 TRADE_SUCCESS 或 TRADE_FINISHED 时，支付宝才会认定为买家付款成功。 */
+        /*     // 1、商户需要验证该通知数据中的out_trade_no是否为商户系统中创建的订单号； */
+        /*     // 2、判断total_amount是否确实为该订单的实际金额（即商户订单创建时的金额）； */
+        /*     // 3、校验通知中的seller_id（或者seller_email) 是否为out_trade_no这笔单据的对应的操作方（有的时候，一个商户可能有多个seller_id/seller_email）； */
+        /*     // 4、验证app_id是否为该商户本身。 */
+        /*     // 5、其它业务逻辑情况 */
+
+        /*     Log::info('Alipay notify', ['data' => $data->all()]); */
+        /* } catch (Exception $e) { */
+        /*     Log::info('message:' . $e->getMessage()); */
+        /* } */
+
+        /* return $alipay->success();// laravel 框架中请直接 `return $alipay->success()` */
+    }
+
 }

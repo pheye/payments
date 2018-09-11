@@ -10,6 +10,7 @@
         "payum/payum-laravel-package": "^1.0",
         "papamonkey/paypal-express-checkout-nvp": "^1.5.1",
         "paypal/rest-api-sdk-php": "*",
+        "yansongda/pay": "^2.4",
         "php-http/guzzle6-adapter": "^1.1",
         "mpdf/mpdf": "^7.0"
     },
