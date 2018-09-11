@@ -11,7 +11,7 @@ Route::any('/payment/stripe/done', $controller . '@onStripeDone')->name('stripe_
 Route::get('/payment/paypal/capture', $controller . '@onPaypalCapture')->name('paypal_capture');
 
 Route::group(['middleware'=>'auth'], function() use ($controller) {
-    Route::post('/pay', $controller . '@pay');                                    
+    Route::match(['get', 'post'], '/pay', $controller . '@pay');                                    
     Route::get('/billings', $controller . '@billings');                           
     Route::post('/subscription/{id}/cancel', $controller . '@cancel');            
     Route::get('/invoice/{invoice}', function (Request $request, $invoiceId) {            
