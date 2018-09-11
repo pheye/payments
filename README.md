@@ -135,6 +135,7 @@ GET invoice/{invoice_id}
 ```
 paypal_express_checkout Paypal EC
 zhongwaibao 中外宝
+alipay 支付宝
 ```
 
 # 命令
