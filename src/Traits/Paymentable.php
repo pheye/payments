@@ -3,6 +3,7 @@ namespace Pheye\Payments\Traits;
 
 use Pheye\Payments\Models\Subscription;
 use Pheye\Payments\Models\Payment;
+use Pheye\Payments\Models\Coupon;
 
 trait Paymentable
 {
