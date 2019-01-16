@@ -139,8 +139,9 @@ class SubscriptionController extends PayumController
         $user = Auth::user();
         $coupon = null;
         $discount = 0;
+        $upgrade = $req->input('upgrade', false);
         // 如果存在对应的优惠券就使用
-        if ($req->has('coupon') && $req->coupon) {
+        if ($req->has('coupon') && $req->coupon && !$upgrade) {
             $coupon = $this->checkCoupon($req->coupon, $plan->setup_fee);
             if (!$coupon) {
                 throw new BusinessErrorException('invalid coupon');
@@ -179,6 +180,21 @@ class SubscriptionController extends PayumController
         // $subscription->skype = $req->input('skype', ''); // 获取skype字段
         $subscription->save();
 
+        if ($upgrade) {
+            $oldsub = $user->getEffectiveSub();
+            if (!$oldsub) {
+                throw new BusinessErrorException("you can upgrade before you have a valid subscription");
+            }
+            if ($oldsub->plan == $subscription->plan) {
+                throw new BusinessErrorException("you have on {$oldsub->plan} already");
+            }
+            // 只考虑循环扣款
+            $subscription->setup_fee = $plan->amount - $oldsub->setup_fee * $oldsub->getLeftDays() / 30;
+            $subscription->save();
+
+            // old subscription will be cancelled automatically
+            $this->paymentService->cancel($oldsub);
+        }
         if ($req->has('payType') && $req->payType == 'stripe') {
             return $this->payByStripe($req, $plan, $user, $coupon);
         }
@@ -1026,5 +1042,4 @@ class SubscriptionController extends PayumController
 
         /* return $alipay->success();// laravel 框架中请直接 `return $alipay->success()` */
     }
-
 }

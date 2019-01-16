@@ -3,6 +3,7 @@
 namespace Pheye\Payments\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Carbon\Carbon;
 
 class Subscription extends Model
 {
@@ -149,7 +150,26 @@ class Subscription extends Model
      */
     public function getLeftDays()
     {
-        
+        $nowTime = Carbon::now();
+        $longestExpired = $nowTime;
+        $selectedPayment = null;
+        foreach ($this->payments as $payment) {
+            if ($payment->isEffective()) {
+                $expired = new Carbon($payment->end_date);
+                $expired->addDay();
+                if ($expired->gt($nowTime)) {
+                    $longestExpired = $expired;
+                    $selectedPayment = $payment;
+                }
+            }
+        }
+        if (!$selectedPayment)
+            return 0;
+        $days = $longestExpired->diffInDays($nowTime);
+        if ($days > 0) {
+            $days -= 1;
+        }
+        return $days;
     }
 
     /**
