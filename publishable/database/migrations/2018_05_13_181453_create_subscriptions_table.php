@@ -29,7 +29,6 @@ class CreateSubscriptionsTable extends Migration {
             $table->string('buyer_email')->nullable();
             $table->dateTime('next_billing_date')->nullable();
             $table->dateTime('canceled_at')->nullable();
-            $table->string('skype')->nullable()->default('');
             $table->integer('gateway_id')->unsigned()->index('subscriptions_gateway_id_foreign');
             $table->string('status');
             $table->string('tag')->default('default');

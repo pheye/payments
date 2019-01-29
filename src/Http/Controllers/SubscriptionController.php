@@ -195,16 +195,17 @@ class SubscriptionController extends PayumController
             // old subscription will be cancelled automatically
             $this->paymentService->cancel($oldsub);
         }
-        if ($req->has('payType') && $req->payType == 'stripe') {
-            return $this->payByStripe($req, $plan, $user, $coupon);
-        }
-        if ($gatewayConfig->factory_name == GatewayConfig::FACTORY_PAYPAL_EXPRESS_CHECKOUT) {
+        switch ($gatewayConfig->factory_name) {
+        case GatewayConfig::FACTORY_PAYPAL_EXPRESS_CHECKOUT:
             return $this->preparePaypalCheckout($req, $subscription, $plan, $gatewayConfig);    
-        } else if ($gatewayConfig->factory_name == GatewayConfig::FACTORY_ZHONGWAIBAO) {
+        case GatewayConfig::FACTORY_ZHONGWAIBAO:
             return $this->payByZhongwaibao($req, $plan, $subscription, $gatewayConfig);
-        } else if ($gatewayConfig->factory_name == GatewayConfig::FACTORY_ALIPAY) {
+        case GatewayConfig::FACTORY_ALIPAY:
             return $this->payByAlipay($subscription, $plan, $gatewayConfig);
+        case GatewayConfig::FACTORY_STRIPE:
+            return $this->payByStripe($subscription, $req, $plan, $user, $gatewayConfig);
         }
+
 
         $service = $this->paymentService->getRawService(PaymentService::GATEWAY_PAYPAL);
         $approvalUrl = $service->createPayment($plan, $coupon ? ['setup_fee' => $plan->amount - $discount] : null);
@@ -469,15 +470,17 @@ class SubscriptionController extends PayumController
         return redirect($payment->getApprovalLink());
     }
 
-    protected function payByStripe(Request &$req, Plan &$plan, &$user, $coupon)
+    /**
+     * 使用stripe支持
+     *
+     * 支持循环扣款
+     */
+    protected function payByStripe(Subscription $subscription, Request &$req, Plan &$plan, &$user, $gatewayConfig)
     {
         if (!$req->has('stripeToken')) {
-            return redirect()->back()->withErrors(['message' => 'invalid credit card']);
+            throw new BusinessErrorException('invalid credit card');
         }
-        $discount = 0;
-        if ($coupon) {
-            $discount = $coupon->getDiscountAmount($plan->amount);
-        }
+
         $storage = $this->getPayum()->getStorage(Payment::class);
         $payment = $storage->create();
         $payment->setNumber($this->generateNo());
@@ -489,19 +492,20 @@ class SubscriptionController extends PayumController
         $payment->setDetails(
             new \ArrayObject(
                 [
-                    'amount' => ($plan->amount  - $discount) * 100,
+                    'amount' => ($subscription->setup_fee) * 100,
                     'currency' => $plan->currency,
                     'card' => $req->stripeToken,
                     'local' => [
-                        'save_card' => true,
-                        'customer' => ['plan' => $plan->name]
-                    ]
+                        'subscription_id' => $subscription->id,
+                        /* 'save_card' => true, */
+                        /* 'customer' => ['plan' => $plan->name] */
+                    ],
                 ]
             )
         );
         $storage->update($payment);
 
-        $captureToken = $this->getPayum()->getTokenFactory()->createCaptureToken('stripe', $payment, 'stripe_done');
+        $captureToken = $this->getPayum()->getTokenFactory()->createCaptureToken($gatewayConfig->gateway_name, $payment, 'stripe_done');
         return redirect($captureToken->getTargetUrl());
     }
 
@@ -639,41 +643,49 @@ class SubscriptionController extends PayumController
         $payment = $status->getFirstModel();
 
         $details = $payment->getDetails();
-        if ($status->getValue() == 'captured') {
-            // 这整个流程应该是原子操作，应该放在队列中
-            $user = User::find($payment->getClientId());
-            $planName = $details['local']['customer']['plan'];
+        if ($status->getValue() !== 'captured') {
+            dd($status);
+            throw new BusinessErrorException("invalid status:  {$status->getValue()}");
+        }
+        // 这整个流程应该是原子操作，应该放在队列中
+        $user = User::find($payment->getClientId());
+        $details = $payment->getDetails();
 
-            $subscription = Subscription::where('user_id', $user->id)->where(['status' => Subscription::STATE_CREATED, 'gateway' => PaymentService::GATEWAY_STRIPE])->first();
-            $subscription->agreement_id = $details['local']['customer']['subscriptions']['data'][0]['id'];
-            $subscription->quantity = 1;
-            /* $subscription->setup_fee = $details['amount'] / 100; */
+        $subscription = Subscription::find($details['local']['subscription_id']);
+        /* $subscription->agreement_id = $details['local']['customer']['subscriptions']['data'][0]['id']; */
+        $subscription->quantity = 1;
+        $subscription->status = Subscription::STATE_PAYED;
         $subscription->save();
 
-
-            $ourPayment = new OurPayment();
-            switch ($status->getValue()) {
-                case 'captured':
-                    $ourPayment->status = OurPayment::STATE_COMPLETED;
-                    break;
-                default:
-                    $ourPayment->status = $status->getValue();
-            }
-
-            $ourPayment->client_id = $payment->getClientId();
-            $ourPayment->client_email = $payment->getClientEmail();
-            $ourPayment->amount = number_format($details['amount'] / 100, 2);
-            $ourPayment->currency = ($payment->getCurrencyCode());
-            $ourPayment->setNumber($payment->getNumber());
-            $ourPayment->details = $details;
-            $ourPayment->description = $payment->getDescription();
-            $ourPayment->subscription()->associate($subscription);
-            $ourPayment->save();
-
-
-            $this->paymentService->handlePayment($ourPayment);
+        $ourPayment = new OurPayment();
+        switch ($status->getValue()) {
+        case 'captured':
+            $ourPayment->status = OurPayment::STATE_COMPLETED;
+            break;
+        default:
+            $ourPayment->status = $status->getValue();
         }
-        return redirect('/app/profile?active=0');
+
+        $ourPayment->client_id = $payment->getClientId();
+        $ourPayment->client_email = $payment->getClientEmail();
+        $ourPayment->amount = number_format($details['amount'] / 100, 2);
+        $ourPayment->currency = ($payment->getCurrencyCode());
+        $ourPayment->setNumber($payment->getNumber());
+        $ourPayment->details = $details;
+        $ourPayment->description = $payment->getDescription();
+        $ourPayment->subscription()->associate($subscription);
+        $ourPayment->save();
+
+        $this->paymentService->handlePayment($ourPayment);
+
+        $this->getPayum()->getHttpRequestVerifier()->invalidate($token);
+        dispatch(new GenerateInvoiceJob(new Collection([$ourPayment])));//入参类型为Collection  
+        event(new PayedEvent($ourPayment));
+        $redirectUrl = Voyager::setting('payed_redirect') ? : (config('payment.payed_redirect') ? :'/');
+        if ($request->expectsJson()) {
+            return response()->json(['redirect' => $redirectUrl]);
+        }
+        return redirect($redirectUrl);
     }
 
     public function cancel($id)

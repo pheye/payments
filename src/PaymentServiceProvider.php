@@ -73,15 +73,27 @@ class PaymentServiceProvider extends ServiceProvider
                 ->addStorage(RecurringPaymentDetails::class, new FilesystemStorage(sys_get_temp_dir(), RecurringPaymentDetails::class));
             // Paypal配置全部从数据库中读取
             // Paypal Express Checkout
-            $configs = GatewayConfig::where('factory_name', GatewayConfig::FACTORY_PAYPAL_EXPRESS_CHECKOUT)->get();
+            $configs = GatewayConfig::all();
             foreach ($configs as $config) {
-                $payumBuilder->addGateway($config->gateway_name, [
+                switch ($config->factory_name) {
+                case GatewayConfig::FACTORY_PAYPAL_EXPRESS_CHECKOUT:
+                    $payumBuilder->addGateway($config->gateway_name, [
                         'factory' => 'paypal_express_checkout',
                         'username' => $config->config['username'],
                         'password' => $config->config['password'],
                         'signature' => $config->config['signature'],
-                        'sandbox' => $config->config['sandbox']
+                        'sandbox' => $config->config['sandbox'],
                     ]);
+                    break;
+                case GatewayConfig::FACTORY_STRIPE:
+                    $payumBuilder->addGateway($config->gateway_name,[
+                        'factory' => 'stripe_js',
+                        'publishable_key' => $config->config['publishable_key'],
+                        'secret_key' => $config->config['secret_key'],
+                        'payum.extension.create_customer' => new \Pheye\Payments\Payum\Stripe\Extensions\CreateCustomerExtension(),
+                    ]);
+                    break;
+                }
             }
 
             // Paypal REST API
