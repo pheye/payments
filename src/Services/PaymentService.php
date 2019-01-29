@@ -144,114 +144,125 @@ class PaymentService implements PaymentServiceContract
         return $payment;
     }
 
+    protected function syncStripePlans(GatewayConfig $gateway)
+    {
+        $plans = Plan::all();
+        Stripe::setApiKey($gateway->config['secret_key']);
+        foreach ($plans as $plan) {
+            // 如果已经存在就对比，发现不一致就删除，再创建
+            $planDesc = [
+                "amount" => $plan->amount * 100,
+                "interval" => strtolower($plan->frequency),
+                'interval_count' => $plan->frequency_interval,
+                "name" => $plan->display_name,
+                "currency" => strtolower($plan->currency),
+                "id" => $plan->name
+            ];
+
+            // 有没有更好的机制可以输出更详细的信息？
+            $this->log("stripe plan:{$plan->name} is creating");
+            try {
+                $old = StripePlan::retrieve($planDesc['id']);
+                if ($old) {
+                    $dirty = false;
+                    $oldArray = $old->__toArray(true);
+                    foreach ($planDesc as $key => $item) {
+                        if ($oldArray[$key] != $item) {
+                            $old->delete();
+                            $this->log("stripe plan已存在并且{$key}(new:{$item}, old:{$oldArray[$key]})不一致，删除", PaymentService::LOG_INFO);
+                            $dirty = true;
+                            break;
+                        }
+                    }
+                    if (!$dirty) {
+                        $this->log("{$plan->name}已经创建过且无修改,忽略");
+                        continue;
+                    }
+                }
+            } catch (\Exception $e) {
+            }
+            StripePlan::create($planDesc);
+            $this->log("{$plan->name} created for stripe");
+        }
+    }
+
+    protected function syncPaypalRestPlans(GatewayConfig $config)
+    {
+        $plans = Plan::all();
+        $this->log("sync to paypal, this will cost time, PLEASE WAITING...");
+
+        $gatewayConfigs = GatewayConfig::where('factory_name', GatewayConfig::FACTORY_PAYPAL_REST)->get();
+        foreach ($gatewayConfigs as $k => $gatewayConfig) {
+            $service = $this->getPaypalService($gatewayConfig->config, true);
+            $this->log('Gateway Name:' . $gatewayConfig->gateway_name, PaymentService::LOG_INFO);
+            $plans->each(
+                function ($plan, $key) use ($service) {
+                    $this->log("Plan {$plan->name} is creating");
+                    //Paypal如果要建立TRIAL用户，过程比较繁琐，这里直接跳过
+                    if ($plan->amount == 0) {
+                        $this->log("Plan {$plan->name}: ignore free plan in paypal");
+                        return;
+                    }
+                    $paypalPlan = null;
+                    if ($plan->paypal_id) {
+                        $paypalPlan = $service->getPlan($plan->paypal_id);
+                    }
+                    if ($paypalPlan) {
+                        $merchantPreference = $paypalPlan->getMerchantPreferences();
+                        $paymentDef = $paypalPlan->getPaymentDefinitions();
+                        $paymentDef = $paymentDef[0];
+                        $money = $paymentDef->getAmount();
+                        $paypalPlanDesc = [
+                            'name' => $paypalPlan->getName(),
+                            'display_name' => $paypalPlan->getDescription(),
+                            'amount' => $money->getValue(),
+                            'currency' => $money->getCurrency(),
+                            'frequency' => $paymentDef->getFrequency(),
+                            'frequency_interval' => $paymentDef->getFrequencyInterval()
+                        ];
+                        $isDirty = false;
+                        foreach ($paypalPlanDesc as $key => $val) {
+                            if (strtolower($plan[$key]) != strtolower($val)) {
+                                $this->log("remote paypal diff with local ({$key}):{$plan[$key]} $val");
+                                $service->deletePlan($plan->paypal_id);
+                                $isDirty = true;
+                                break;
+                            }
+                        }
+                        if (!$isDirty) {
+                            $this->log("{$plan->name}已经创建过且无修改,忽略");
+                            return;
+                        }
+                    }
+                    $output = $service->createPlan($plan);
+                    $plan->paypal_id = $output->getId();
+                    $plan->save();
+                    $this->log("{$plan->name} created for paypal");
+                }
+            );
+        }
+        $this->log("paypal sync done");
+    }
+    
     /**
      * {@inheritDoc}
      * @remark 同步计划没有考虑到试用期, 建立费用，延迟时间
      */
     public function syncPlans(array $gateways)
     {
-        $plans = Plan::all();
-        $isAll = true;
         $gateways = new Collection($gateways);
-        if (!$gateways->isEmpty()) {
-            $isAll = false;
-        }
 
-        if ($isAll || $gateways->contains(PaymentService::GATEWAY_STRIPE)) {
-            foreach ($plans as $plan) {
-                // 如果已经存在就对比，发现不一致就删除，再创建
-                $planDesc = [
-                    "amount" => $plan->amount * 100,
-                    "interval" => strtolower($plan->frequency),
-                    'interval_count' => $plan->frequency_interval,
-                    "name" => $plan->display_name,
-                    "currency" => strtolower($plan->currency),
-                    "id" => $plan->name
-                ];
-
-                // 有没有更好的机制可以输出更详细的信息？
-                $this->log("stripe plan:{$plan->name} is creating");
-                try {
-                    $old = StripePlan::retrieve($planDesc['id']);
-                    if ($old) {
-                        $dirty = false;
-                        $oldArray = $old->__toArray(true);
-                        foreach ($planDesc as $key => $item) {
-                            if ($oldArray[$key] != $item) {
-                                $old->delete();
-                                $this->log("stripe plan已存在并且{$key}(new:{$item}, old:{$oldArray[$key]})不一致，删除", PaymentService::LOG_INFO);
-                                $dirty = true;
-                                break;
-                            }
-                        }
-                        if (!$dirty) {
-                            $this->log("{$plan->name}已经创建过且无修改,忽略");
-                            continue;
-                        }
-                    }
-                } catch (\Exception $e) {
-                }
-                StripePlan::create($planDesc);
-                $this->log("{$plan->name} created for stripe");
+        foreach ($gateways as $gateway) {
+            switch ($gateway->factory_name) {
+            case GatewayConfig::FACTORY_STRIPE:
+                $this->syncStripePlans($gateway);
+                break;
+            case GatewayConfig::FACTORY_PAYPAL_REST:
+                $this->syncPaypalRestPlans($gateway);
+                break;
+            default:
+                throw new \Exception("not implemented");
             }
-        }
-
-
-        // 往所有Paypal REST的网关同步计划
-        if ($isAll || $gateways->contains(PaymentService::GATEWAY_PAYPAL)) {
-            $this->log("sync to paypal, this will cost time, PLEASE WAITING...");
-            
-            $gatewayConfigs = GatewayConfig::where('factory_name', GatewayConfig::FACTORY_PAYPAL_REST)->get();
-            foreach ($gatewayConfigs as $k => $gatewayConfig) {
-                $service = $this->getPaypalService($gatewayConfig->config, true);
-                $this->log('Gateway Name:' . $gatewayConfig->gateway_name, PaymentService::LOG_INFO);
-                $plans->each(
-                    function ($plan, $key) use ($service) {
-                        $this->log("Plan {$plan->name} is creating");
-                        //Paypal如果要建立TRIAL用户，过程比较繁琐，这里直接跳过
-                        if ($plan->amount == 0) {
-                            $this->log("Plan {$plan->name}: ignore free plan in paypal");
-                            return;
-                        }
-                        $paypalPlan = null;
-                        if ($plan->paypal_id) {
-                            $paypalPlan = $service->getPlan($plan->paypal_id);
-                        }
-                        if ($paypalPlan) {
-                            $merchantPreference = $paypalPlan->getMerchantPreferences();
-                            $paymentDef = $paypalPlan->getPaymentDefinitions();
-                            $paymentDef = $paymentDef[0];
-                            $money = $paymentDef->getAmount();
-                            $paypalPlanDesc = [
-                                'name' => $paypalPlan->getName(),
-                                'display_name' => $paypalPlan->getDescription(),
-                                'amount' => $money->getValue(),
-                                'currency' => $money->getCurrency(),
-                                'frequency' => $paymentDef->getFrequency(),
-                                'frequency_interval' => $paymentDef->getFrequencyInterval()
-                            ];
-                            $isDirty = false;
-                            foreach ($paypalPlanDesc as $key => $val) {
-                                if (strtolower($plan[$key]) != strtolower($val)) {
-                                    $this->log("remote paypal diff with local ({$key}):{$plan[$key]} $val");
-                                    $service->deletePlan($plan->paypal_id);
-                                    $isDirty = true;
-                                    break;
-                                }
-                            }
-                            if (!$isDirty) {
-                                $this->log("{$plan->name}已经创建过且无修改,忽略");
-                                return;
-                            }
-                        }
-                        $output = $service->createPlan($plan);
-                        $plan->paypal_id = $output->getId();
-                        $plan->save();
-                        $this->log("{$plan->name} created for paypal");
-                    }
-                );
-            }
-            $this->log("paypal sync done");
         }
     }
 

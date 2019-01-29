@@ -119,7 +119,8 @@ class PaymentServiceProvider extends ServiceProvider
             Console\Commands\InvoiceCommand::class,
             Console\Commands\RefundCommand::class,
             Console\Commands\SyncPaymentsCommand::class,
-            Console\Commands\CancelCommand::class
+            Console\Commands\CancelCommand::class,
+            Console\Commands\SyncPlansCommand::class
         ]);
     }
 }

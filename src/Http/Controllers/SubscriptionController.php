@@ -177,7 +177,6 @@ class SubscriptionController extends PayumController
         $subscription->gateway_id = $gatewayConfig->id;
         $subscription->status = Subscription::STATE_CREATED;
         $subscription->tag = Subscription::TAG_DEFAULT;
-        // $subscription->skype = $req->input('skype', ''); // 获取skype字段
         $subscription->save();
 
         if ($upgrade) {
@@ -203,9 +202,8 @@ class SubscriptionController extends PayumController
         case GatewayConfig::FACTORY_ALIPAY:
             return $this->payByAlipay($subscription, $plan, $gatewayConfig);
         case GatewayConfig::FACTORY_STRIPE:
-            return $this->payByStripe($subscription, $req, $plan, $user, $gatewayConfig);
+            return $this->payByStripe($subscription, $req, $plan, $gatewayConfig);
         }
-
 
         $service = $this->paymentService->getRawService(PaymentService::GATEWAY_PAYPAL);
         $approvalUrl = $service->createPayment($plan, $coupon ? ['setup_fee' => $plan->amount - $discount] : null);
@@ -475,11 +473,13 @@ class SubscriptionController extends PayumController
      *
      * 支持循环扣款
      */
-    protected function payByStripe(Subscription $subscription, Request &$req, Plan &$plan, &$user, $gatewayConfig)
+    protected function payByStripe(Subscription $subscription, Request &$req, Plan &$plan, $gatewayConfig)
     {
         if (!$req->has('stripeToken')) {
             throw new BusinessErrorException('invalid credit card');
         }
+
+        $user = Auth::user();
 
         $storage = $this->getPayum()->getStorage(Payment::class);
         $payment = $storage->create();
