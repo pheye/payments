@@ -7,7 +7,6 @@ use Payum\Stripe\Extension\CreateCustomerExtension as PayumCreateCustomerExtensi
 use Payum\Core\Model\PaymentInterface;
 use Payum\Core\GatewayInterface;
 use Payum\Stripe\Request\Api\CreateCustomer;
-use Log;
 
 class CreateCustomerExtension extends PayumCreateCustomerExtension
 {
@@ -24,7 +23,6 @@ class CreateCustomerExtension extends PayumCreateCustomerExtension
         if (false == $model instanceof \Payum\Core\Bridge\Spl\ArrayObject) {
             return;
         }
-        Log::info('on pre ' . get_class($request) . ' ' . get_class($model));
         if (false == ($model instanceof \ArrayAccess)) {
             return;
         }
