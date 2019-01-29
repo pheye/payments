@@ -2,7 +2,12 @@
 namespace Pheye\Payments\Payum\Stripe\Extensions;
 
 use Payum\Core\Extension\Context;
+use Payum\Core\Bridge\Spl\ArrayObject;
 use Payum\Stripe\Extension\CreateCustomerExtension as PayumCreateCustomerExtension;
+use Payum\Core\Model\PaymentInterface;
+use Payum\Core\GatewayInterface;
+use Payum\Stripe\Request\Api\CreateCustomer;
+use Log;
 
 class CreateCustomerExtension extends PayumCreateCustomerExtension
 {
@@ -11,7 +16,20 @@ class CreateCustomerExtension extends PayumCreateCustomerExtension
      */
     public function onPreExecute(Context $context)
     {
-        // disable customers creation
+        $request = $context->getRequest();
+        if (false == $request instanceof \Payum\Core\Request\Capture) {
+            return;
+        }
+        $model = $request->getModel();
+        if (false == $model instanceof \Payum\Core\Bridge\Spl\ArrayObject) {
+            return;
+        }
+        Log::info('on pre ' . get_class($request) . ' ' . get_class($model));
+        if (false == ($model instanceof \ArrayAccess)) {
+            return;
+        }
+
+        $this->createCustomer($context->getGateway(), ArrayObject::ensureArrayObject($model));
     }
 
     /**
@@ -27,6 +45,48 @@ class CreateCustomerExtension extends PayumCreateCustomerExtension
      */
     public function onPostExecute(Context $context)
     {
-        // disable customers creation
+        /** @var Capture $request */
+        $request = $context->getRequest();
+        /* if (false == $request instanceof ObtainToken) { */
+        /*     return; */
+        /* } */
+        return;
+        $model = $request->getModel();
+        $details = $model->getDetails();
+        if (false == ($details instanceof \ArrayAccess)) {
+            return;
+        }
+
+        $this->createCustomer($context->getGateway(), ArrayObject::ensureArrayObject($details));
+    }
+
+    /**
+     * @param GatewayInterface $gateway
+     * @param ArrayObject $model
+     */
+    protected function createCustomer(GatewayInterface $gateway, ArrayObject $model)
+    {
+        if (false == ($model['card'] && is_string($model['card']))) {
+            return;
+        }
+
+        $local = $model->getArray('local');
+        if (false == $local['save_card']) {
+            return;
+        }
+        $customer = $local->getArray('customer');
+        $customer['card'] = $model['card'];
+
+        $gateway->execute(new CreateCustomer($customer));
+
+        $local['customer'] = $customer->toUnsafeArray();
+        $model['local'] = $local->toUnsafeArray();
+        unset($model['card']);
+
+        if ($customer['id']) {
+            $model['customer'] = $customer['id'];
+        } else {
+            $model['status'] = Constants::STATUS_FAILED;
+        }
     }
 }

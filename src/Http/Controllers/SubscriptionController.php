@@ -489,20 +489,46 @@ class SubscriptionController extends PayumController
         $payment->setDescription($plan->display_name);
         $payment->setClientId($user->id);
         $payment->setClientEmail($user->email);
-        $payment->setDetails(
-            new \ArrayObject(
-                [
-                    'amount' => ($subscription->setup_fee) * 100,
-                    'currency' => $plan->currency,
-                    'card' => $req->stripeToken,
-                    'local' => [
-                        'subscription_id' => $subscription->id,
-                        /* 'save_card' => true, */
-                        /* 'customer' => ['plan' => $plan->name] */
-                    ],
-                ]
-            )
-        );
+        if ($req->input('onetime', 0)) {
+            $payment->setDetails(
+                new \ArrayObject(
+                    [
+                        'amount' => ($subscription->setup_fee) * 100,
+                        'currency' => $plan->currency,
+                        'card' => $req->stripeToken,
+                        'local' => [
+                            'save_card' => true,
+                            'customer' => [
+                                'email' => $user->email,
+                                'description' => "customer from " . config('app.name')
+                            ],
+                            'subscription_id' => $subscription->id,
+                            'onetime' => true
+                        ],
+                    ]
+                )
+            );
+        } else {
+            $payment->setDetails(
+                new \ArrayObject(
+                    [
+                        'amount' => ($subscription->setup_fee) * 100,
+                        'currency' => $plan->currency,
+                        'card' => $req->stripeToken,
+                        'local' => [
+                            'save_card' => true,
+                            'customer' => [
+                                'plan' => $plan->name,
+                                'email' => $user->email,
+                                'description' => "customer from " . config('app.name')
+                            ],
+                            'subscription_id' => $subscription->id,
+                            'onetime' => false
+                        ],
+                    ]
+                )
+            );
+        }
         $storage->update($payment);
 
         $captureToken = $this->getPayum()->getTokenFactory()->createCaptureToken($gatewayConfig->gateway_name, $payment, 'stripe_done');
@@ -644,7 +670,7 @@ class SubscriptionController extends PayumController
 
         $details = $payment->getDetails();
         if ($status->getValue() !== 'captured') {
-            dd($status);
+            $model = $status->getModel();
             throw new BusinessErrorException("invalid status:  {$status->getValue()}");
         }
         // 这整个流程应该是原子操作，应该放在队列中
@@ -652,9 +678,12 @@ class SubscriptionController extends PayumController
         $details = $payment->getDetails();
 
         $subscription = Subscription::find($details['local']['subscription_id']);
-        /* $subscription->agreement_id = $details['local']['customer']['subscriptions']['data'][0]['id']; */
+        if (!$details['local']['onetime']) {
+            $subscription->agreement_id = $details['local']['customer']['subscriptions']['data'][0]['id'];
+        }
         $subscription->quantity = 1;
         $subscription->status = Subscription::STATE_PAYED;
+        $subscription->details = $details['local'];
         $subscription->save();
 
         $ourPayment = new OurPayment();
