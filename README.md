@@ -101,6 +101,8 @@ POST /pay
 - `plan_name`: `plan`的名称
 - `gateway_name`(可选): 如果指定就使用对应名称的网关，否则使用默认配置的网关
 - `onetime`(可选): 是否一次性支付，设置为1表示使用一次性支付，否则在支持循环扣款的网关下将默认使用循环扣款
+- `amount`(可选): 手动指定金额，在`plan_name`有效的情况下，该参数被自动忽略
+- `coupon`(可选)：优惠码
 
 ## 升级订阅
 
@@ -146,7 +148,12 @@ GET invoice/{invoice_id}
 
 
 ## 优惠券
-(待补充)
+
+```
+GET /coupons?filter[code]={code}
+```
+
+获取代码为code的优惠券
 
 # 支付的网关类型
 
@@ -164,6 +171,7 @@ payment:invoice 生成票据
 payment:refund 退款
 payment:sync-payments 同步订单
 payment:cancel 取消订阅
+payment:sync-plans 将本地计划同步到支付网关（对于Paypal REST和Stripe的循环扣款，这是必须的操作）
 ```
 
 # 其他

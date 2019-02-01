@@ -9,6 +9,7 @@ Route::post('/payment/alipay/notify', $controller . '@onAlipayNotify');
 Route::post('/payment/paypal/done', $controller . '@onPaypalDone');
 Route::any('/payment/stripe/done', $controller . '@onStripeDone')->name('stripe_done');
 Route::get('/payment/paypal/capture', $controller . '@onPaypalCapture')->name('paypal_capture');
+Route::get('/coupons', '\Pheye\Payments\Http\Controllers\CouponController@index');
 
 Route::group(['middleware'=>'auth'], function() use ($controller) {
     Route::match(['get', 'post'], '/pay', $controller . '@pay');                                    
