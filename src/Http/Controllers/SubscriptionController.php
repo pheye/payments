@@ -196,13 +196,23 @@ class SubscriptionController extends PayumController
         }
         switch ($gatewayConfig->factory_name) {
         case GatewayConfig::FACTORY_PAYPAL_EXPRESS_CHECKOUT:
-            return $this->preparePaypalCheckout($req, $subscription, $plan, $gatewayConfig);    
+            $redirect = $this->preparePaypalCheckout($req, $subscription, $plan, $gatewayConfig);    
+            break;
         case GatewayConfig::FACTORY_ZHONGWAIBAO:
-            return $this->payByZhongwaibao($req, $plan, $subscription, $gatewayConfig);
+            $redirect = $this->payByZhongwaibao($req, $plan, $subscription, $gatewayConfig);
+            break;
         case GatewayConfig::FACTORY_ALIPAY:
-            return $this->payByAlipay($subscription, $plan, $gatewayConfig);
+            $redirect = $this->payByAlipay($subscription, $plan, $gatewayConfig);
+            break;
         case GatewayConfig::FACTORY_STRIPE:
-            return $this->payByStripe($subscription, $req, $plan, $gatewayConfig);
+            $redirect = $this->payByStripe($subscription, $req, $plan, $gatewayConfig);
+            break;
+        }
+        if ($redirect) {
+            if ($req->expectsJson()) {
+                return response()->json(['redirect' => $redirectUrl]);
+            }
+            return redirect($redirect);
         }
 
         $service = $this->paymentService->getRawService(PaymentService::GATEWAY_PAYPAL);
@@ -459,7 +469,7 @@ class SubscriptionController extends PayumController
 
             $storage->update($agreement);
         }
-        return redirect($captureToken->getTargetUrl());
+        return $captureToken->getTargetUrl();
     }
 
     protected function preparePaypalRestCheckout(Request $request, $amount = null)
@@ -532,7 +542,7 @@ class SubscriptionController extends PayumController
         $storage->update($payment);
 
         $captureToken = $this->getPayum()->getTokenFactory()->createCaptureToken($gatewayConfig->gateway_name, $payment, 'stripe_done');
-        return redirect($captureToken->getTargetUrl());
+        return $captureToken->getTargetUrl();
     }
 
     protected function prepareStripeCheckout(Request $request)
@@ -918,7 +928,7 @@ class SubscriptionController extends PayumController
         if ($req->expectsJson()) {
             return response()->json(['redirect' => $redirectUrl]);
         }
-        return redirect($redirectUrl);
+        return $redirectUrl;
     }
 
     /**
