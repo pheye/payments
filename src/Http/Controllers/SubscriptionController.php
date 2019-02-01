@@ -136,17 +136,25 @@ class SubscriptionController extends PayumController
         } else {
             $plan = Plan::where('name', $req->input('plan_name'))->first();
         }
+        $setupFee = $plan->setup_fee;
+        $amount = $plan->amount;
+        if ($setupFee == 0 && $amount == 0) {
+            if (!$req->has('amount')) {
+                throw new \ErrorException("{$plan->display_name} need amount parameter");
+            }
+            $setupFee = $amount = floatVal($req->input('amount'));
+        }
         $user = Auth::user();
         $coupon = null;
         $discount = 0;
         $upgrade = $req->input('upgrade', false);
         // 如果存在对应的优惠券就使用
         if ($req->has('coupon') && $req->coupon && !$upgrade) {
-            $coupon = $this->checkCoupon($req->coupon, $plan->setup_fee);
+            $coupon = $this->checkCoupon($req->coupon, $setupFee);
             if (!$coupon) {
                 throw new BusinessErrorException('invalid coupon');
             }
-            $discount = $coupon->getDiscountAmount($plan->setup_fee);
+            $discount = $coupon->getDiscountAmount($setupFee);
             if (Subscription::where('quantity', '>', 0)->where('user_id', $user->id)->where('coupon_id', $coupon->id)->count() >= $coupon->customer_uses) {
                 throw new BusinessErrorException('You have used the coupon');
             }
@@ -167,10 +175,11 @@ class SubscriptionController extends PayumController
         $subscription->plan = $plan->name;
         $subscription->quantity = 0;
         $subscription->coupon_id = $coupon ? $coupon->id : 0;
+        // 其实：应该统一使用$setupFee,使用$amount是为了确保以前有些项目没有设置$setupFee
         if ($req->input('onetime', 0)) {
-            $subscription->setup_fee = $plan->amount - $discount;
+            $subscription->setup_fee = $amount - $discount;
         } else {
-            $subscription->setup_fee = $plan->setup_fee - $discount;
+            $subscription->setup_fee = $setupFee - $discount;
         }
         $subscription->frequency = $plan->frequency;
         $subscription->frequency_interval = $plan->frequency_interval;
@@ -210,7 +219,7 @@ class SubscriptionController extends PayumController
         }
         if ($redirect) {
             if ($req->expectsJson()) {
-                return response()->json(['redirect' => $redirectUrl]);
+                return response()->json(['redirect' => $redirect]);
             }
             return redirect($redirect);
         }
