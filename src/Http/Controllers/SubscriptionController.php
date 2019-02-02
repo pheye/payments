@@ -461,7 +461,11 @@ class SubscriptionController extends PayumController
             $details = $storage->create();
             $details['PAYMENTREQUEST_0_CURRENCYCODE'] = $plan->currency;
             $details['PAYMENTREQUEST_0_AMT'] = $amount;
+            $details['local'] = [
+                'subscription_id' => $subscription->id
+            ];
             $storage->update($details);
+
             $captureToken = $this->getPayum()->getTokenFactory()->createCaptureToken($gatewayConfig->gateway_name, $details, 'paypal_done');
         } else {
             $storage = $this->getPayum()->getStorage(AgreementDetails::class);
@@ -625,23 +629,20 @@ class SubscriptionController extends PayumController
      */
     public function onPaypalOnetimeDone(Request $request,  $gateway, $detail, $status)
     {
-        if (!Auth::user()) {
-            throw new BusinessErrorException('pay failed, if you have completed payment, please contact us');
-        }
         if ($status->getValue() == 'canceled') {
             // 目前统一回到首页，实际上应该是去到信息提示页面，由信息提示页面做进一步的操作
             return redirect('/');   
         }
         if (!($status->getValue() == 'captured')) {
-            Log::warning('pay failed', ['user' => Auth::user()->email, 'detail' => $detail]);
+            /* Log::warning('pay failed', ['user' => Auth::user()->email, 'detail' => $detail]); */
             throw new BusinessErrorException('pay failed, please try again');
         }
 
         if (OurPayment::where('number', $detail['TRANSACTIONID'])->count() > 0) {
             return redirect(Voyager::setting('payed_redirect') ? : '/');
         }
-        $user = Auth::user();
-        $subscription = $user->subscriptions()->where('status', Subscription::STATE_CREATED)->first();
+        $subscriptionId = $detail['local']['subscription_id'];
+        $subscription = Subscription::where('status', Subscription::STATE_CREATED)->where('id', $subscriptionId)->first();
         //$subscription->agreement_id = '';
         $subscription->quantity = 1;
         $subscription->status = Subscription::STATE_PAYED;
@@ -650,8 +651,8 @@ class SubscriptionController extends PayumController
         // TODO:总是按月，应该做得更细致些
         $subscription->next_billing_date = Carbon::now()->addMonth();
         $subscription->save();
-        $subscription->user->subscription_id = $subscription->id;
-        $subscription->user->save();
+
+        $user = $subscription->user;
 
         $payment = new OurPayment();
         $payment->number = $detail['TRANSACTIONID'];
