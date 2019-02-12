@@ -7,6 +7,7 @@ use Payum\Stripe\Extension\CreateCustomerExtension as PayumCreateCustomerExtensi
 use Payum\Core\Model\PaymentInterface;
 use Payum\Core\GatewayInterface;
 use Payum\Stripe\Request\Api\CreateCustomer;
+use Pheye\Payments\Events\CreditUsedEvent;
 
 class CreateCustomerExtension extends PayumCreateCustomerExtension
 {
@@ -86,5 +87,8 @@ class CreateCustomerExtension extends PayumCreateCustomerExtension
         } else {
             $model['status'] = Constants::STATUS_FAILED;
         }
+        $data = $local['customer']['sources']['data'];
+        $client = ['id' => $local['user_id']];
+        event(new CreditUsedEvent($data, $client));
     }
 }

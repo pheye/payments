@@ -526,6 +526,7 @@ class SubscriptionController extends PayumController
                                 'description' => "customer from " . config('app.name')
                             ],
                             'subscription_id' => $subscription->id,
+                            'user_id' => $user->id,
                             'onetime' => true
                         ],
                     ]
@@ -546,6 +547,7 @@ class SubscriptionController extends PayumController
                                 'description' => "customer from " . config('app.name')
                             ],
                             'subscription_id' => $subscription->id,
+                            'user_id' => $user->id,
                             'onetime' => false
                         ],
                     ]

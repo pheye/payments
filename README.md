@@ -182,6 +182,11 @@ payment:sync-plans 将本地计划同步到支付网关（对于Paypal REST和St
 
 退款完成事件：`Pheye\Payments\Events\RefundedEvent`，退款完成，会抛出此事件。`$event->refund`可取出退款申请单
 
+信用卡使用事件：`Pheye\Payments\Events\CreditUsedEvent`，用户使用信用卡支付时，会抛出此事件，这是保存信用卡信息的最佳时机，`$event->credit`取出信用卡信息，`$event->client`取出额外的用户相关信息。
+
+> 信用卡中的敏感信息，比如CVV，信用卡全卡号是获取不到的。
+
+
 为方便对事件的处理，包提供了默认的事件订阅器：`Pheye\Payments\Listeners\PaymentEventSubscriber`。
 
 当你需要处理事件时，可按如下方式修改：
@@ -228,6 +233,17 @@ class PaymentEventSubscriber extends \Pheye\Payments\Listeners\PaymentEventSubsc
     {
         $sub = $event->subscription;
         Log::info('on cancellead test '.  $sub->agreement_id);
+    }
+
+    /**
+     * 处理信用卡使用事件
+     *
+     * 这是保存信用卡信息的最佳时机
+     */
+    public function onCreditUsed(CreditUsedEvent $event)
+    {
+        // stub
+        Log::info('credit used', ['credit' => $event->credit, 'client' => $event->client]);
     }
 }
 ```

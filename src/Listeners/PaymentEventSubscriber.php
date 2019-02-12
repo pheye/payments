@@ -8,6 +8,7 @@ use Pheye\Payments\Models\Payment;
 use Pheye\Payments\Events\PayedEvent;
 use Pheye\Payments\Events\RefundedEvent;
 use Pheye\Payments\Events\CancelledEvent;
+use Pheye\Payments\Events\CreditUsedEvent;
 use Log;
 
 class PaymentEventSubscriber
@@ -52,6 +53,15 @@ class PaymentEventSubscriber
         /* Log::info('on cancelled'.  $sub->agreement_id); */
     }
 
+    /**
+     * 处理信用卡使用事件
+     *
+     * 这是保存信用卡信息的最佳时机
+     */
+    public function onCreditUsed(CreditUsedEvent $event)
+    {
+        // stub
+    }
 
     /**
      * @param  Illuminate\Events\Dispatcher  $events
@@ -72,6 +82,12 @@ class PaymentEventSubscriber
         $events->listen(
             CancelledEvent::class,
             $class . '@onCancelled'
+        );
+
+
+        $events->listen(
+            CreditUsedEvent::class,
+            $class . '@onCreditUsed'
         );
     }
 }
