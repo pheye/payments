@@ -106,42 +106,46 @@ class InvoiceController extends Controller
      */
     public function downloadInvoice($invoiceId)
     {
-        $user = Auth::user();
-        if (!$user) {
-            // 用户验证失败
-            Log::info('verify users failed on getGenerateStatus because user not found');
-            throw new BusinessErrorException('You will be login first!');
-        }
-        $thisPayment = Payment::where('invoice_id', $invoiceId)->where('client_id', $user->id)->first();
-        $firstPayment = $user->payments()->orderBy('created_at', 'asc')->first();
-        if (Carbon::now()->diffInDays($firstPayment->created_at) < 7) {
-            // 首单交易时间距今7天内
-            throw new BusinessErrorException('Please download the invoice after 7 days.');
-        }
-        if ($thisPayment) {
-            if ($this->paymentService->checkInvoiceExists($invoiceId)) {
-                // 确认文件存在，转向下载
-                if ($thisPayment->status == Payment::STATE_COMPLETED) {
-                    // 通过验证，执行下载
-                    Log::info("downloading Invoice file on use invoice_id:$invoiceId");
-                    try {
-                        return $this->paymentService->downloadInvoice($invoiceId);
-                    } catch (GenericException $e) {
-                        throw new BusinessErrorException($e->getMessages());
-                    }
-                } else {
-                    // 非成功交易
-                    throw new BusinessErrorException('Cannot download invoice,because this is not a completed payment or is not your payment.');
-                }
-            } else {
-                // 请求的票据id有效，存在交易表中，但是对应的文件不在磁盘中，重新生成，这里使用强制生成
-                Log::info("payment number:$thisPayment->number invoice is not exist, will be re-generate.");
-                dispatch(new GenerateInvoiceJob(Payment::where('invoice_id', $invoiceId)->get(), true));// 入参必须为collection类型，前面的first()获得的是payment类型
-                throw new BusinessErrorException('Cannot download invoice,please refresh this page and try again later.');
-            }
-        } else {
+        /* $user = Auth::user(); */
+        /* if (!$user) { */
+        /*     // 用户验证失败 */
+        /*     Log::info('verify users failed on getGenerateStatus because user not found'); */
+        /*     throw new BusinessErrorException('You will be login first!'); */
+        /* } */
+        // 这个限制不应该是包的一部分，而应该做成中间件
+        $thisPayment = Payment::where('invoice_id', $invoiceId)->first();
+
+        /* $thisPayment = Payment::where('invoice_id', $invoiceId)->where('client_id', $user->id)->first(); */
+        /* $firstPayment = $user->payments()->orderBy('created_at', 'asc')->first(); */
+        /* if (Carbon::now()->diffInDays($firstPayment->created_at) < 7) { */
+        /*     // 首单交易时间距今7天内 */
+        /*     throw new BusinessErrorException('Please download the invoice after 7 days.'); */
+        /* } */
+        if (!$thisPayment) {
             // 票据Id无效
             throw new BusinessErrorException('Invalid invoice id');
         }
+        if (!$this->paymentService->checkInvoiceExists($invoiceId)) {
+            // 请求的票据id有效，存在交易表中，但是对应的文件不在磁盘中，重新生成，这里使用强制生成
+            Log::info("payment number:$thisPayment->number invoice is not exist, will be re-generate.");
+            dispatch(new GenerateInvoiceJob(Payment::where('invoice_id', $invoiceId)->get(), true));// 入参必须为collection类型，前面的first()获得的是payment类型
+            throw new BusinessErrorException('Cannot download invoice,please refresh this page and try again later.');
+
+        }
+       
+        // 确认文件存在，转向下载
+        if ($thisPayment->status == Payment::STATE_COMPLETED) {
+            // 通过验证，执行下载
+            Log::info("downloading Invoice file on use invoice_id:$invoiceId");
+            try {
+                return $this->paymentService->downloadInvoice($invoiceId);
+            } catch (GenericException $e) {
+                throw new BusinessErrorException($e->getMessages());
+            }
+        } else {
+            // 非成功交易
+            throw new BusinessErrorException('Cannot download invoice,because this is not a completed payment or is not your payment.');
+        }
+
     }
 }

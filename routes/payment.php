@@ -15,14 +15,8 @@ Route::group(['middleware'=>'auth'], function() use ($controller) {
     Route::match(['get', 'post'], '/pay', $controller . '@pay');                                    
     Route::get('/billings', $controller . '@billings');                           
     Route::post('/subscription/{id}/cancel', $controller . '@cancel');            
-    Route::get('/invoice/{invoice}', function (Request $request, $invoiceId) {            
-        return Auth::user()->downloadInvoice($invoiceId, [                                
-            'vendor'  => env('app.name'),    
-            'product' => env('app.name'),    
-        ], storage_path('invoice'));
-    });
     Route::put('/payments/{number}/refund_request', $controller . '@requestRefund');                                                                                         
     /* Route::get('/users/customize_invoice', 'UserController@getInvoiceCustomer'); */          
     /* Route::post('/users/customize_invoice', 'UserController@setInvoiceCustomer'); */         
-    /* Route::get('/invoices/{invoice_id}', 'InvoiceController@downloadInvoice'); */            
+    Route::get('/invoices/{invoice_id}', 'InvoiceController@downloadInvoice');            
 }); 

@@ -16,6 +16,7 @@ class GatewayConfig extends Model
     protected $casts = [
         'config' => 'json'
     ];
+    protected $hidden = ['config'];
 
     public function getFormattedFactoryNameAttribute()
     {

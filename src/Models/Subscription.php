@@ -11,6 +11,8 @@ class Subscription extends Model
         'details' => 'array'
     ];
 
+    protected $hidden = ['details'];
+
     public function getDetailsAttribute ($value)
     {
         if (is_null($value))
