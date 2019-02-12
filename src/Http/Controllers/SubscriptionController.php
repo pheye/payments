@@ -777,15 +777,18 @@ class SubscriptionController extends PayumController
         return ['code' => 0, 'desc' => 'success'];
     }
 
+    /**
+     * 请求退款
+     */
     public function requestRefund($no)
     {
         $user = Auth::user();
         $payment = OurPayment::where('number', $no)->first();
         if (!$payment) {
-            return $this->responseError("no such payment $no", -1);
+            throw new BusinessErrorException("no such payment $no");
         }
         if ($payment->refund) {
-            return $this->responseError("you have request refunding before", -1);
+            throw new BusinessErrorException("you have request refunding before");
         }
         $refund = $this->paymentService->requestRefund($payment);
         
