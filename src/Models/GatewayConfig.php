@@ -29,7 +29,7 @@ class GatewayConfig extends Model
         case static::FACTORY_ALIPAY:
             return 'Alipay';
         case static::FACTORY_STRIPE:
-            return 'Stripe';
+            return 'Credit';
         case static::FACTORY_OFFLINE:
             return 'Offline';
         default:

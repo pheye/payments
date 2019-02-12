@@ -131,7 +131,7 @@
                     <tbody>
                         <tr>
                             <td class="item_name">Method</td>
-                            <td class="item_value">Paypal</td>
+                            <td class="item_value">{{$data->method}}</td>
                         </tr>
                     </tbody>
                 </table>
