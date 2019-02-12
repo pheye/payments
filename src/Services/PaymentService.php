@@ -25,6 +25,7 @@ use Mpdf\Mpdf;
 use Storage;
 use Voyager;
 use Log;
+use File;
 use Payum\Core\Request\Cancel;
 use Payum\Core\Request\Sync;
 use Payum\Core\Request\GetHumanStatus;
@@ -1137,6 +1138,7 @@ class PaymentService implements PaymentServiceContract
         // details已经通过casts进行了属性转化，不需要再json_decode
         $details = $payment->details;//paypal的details全部都是string类型
         $data->paymentAccount = $payment->buyer_email;// payment account
+        $data->subscription = $payment->subscription;
         $time = Carbon::parse($payment->created)->setTimezone(Carbon::now()->tz);// 需要转换时区
 
         // 目标时间格式 1 September 2017 at 5:16:04 p.m. HKT
@@ -1180,11 +1182,17 @@ class PaymentService implements PaymentServiceContract
         $data->contact_info = $extra['contact_info'] ? : false;
         $data->website = $extra['website'] ? : false;
         $data->tax_no = $extra['tax_no'] ? : false;
+        $data->icon = false;
 
         // 渲染html,转换成pdf
         $mpdf = new Mpdf(['mode'=>'utf-8']);// 指定用utf-8,就不会有乱码问题
         $mpdf->autoScriptToLang = true;
         $mpdf->autoLangToFont = true;
+        $mpdf->showImageErrors = true;
+        if (config('payment.invoice.icon')) {
+            $mpdf->imageVars['icon'] = File::get(config('payment.invoice.icon'));
+            $data->icon = true;
+        }
         $mpdf->WriteHTML($this->getInvoicePage($data));
 
 

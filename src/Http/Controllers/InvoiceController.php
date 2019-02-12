@@ -134,18 +134,16 @@ class InvoiceController extends Controller
         }
        
         // 确认文件存在，转向下载
-        if ($thisPayment->status == Payment::STATE_COMPLETED) {
-            // 通过验证，执行下载
-            Log::info("downloading Invoice file on use invoice_id:$invoiceId");
-            try {
-                return $this->paymentService->downloadInvoice($invoiceId);
-            } catch (GenericException $e) {
-                throw new BusinessErrorException($e->getMessages());
-            }
-        } else {
+        if ($thisPayment->status !== Payment::STATE_COMPLETED) {
             // 非成功交易
             throw new BusinessErrorException('Cannot download invoice,because this is not a completed payment or is not your payment.');
         }
-
+        // 通过验证，执行下载
+        Log::info("downloading Invoice file on use invoice_id:$invoiceId");
+        try {
+            return $this->paymentService->downloadInvoice($invoiceId);
+        } catch (GenericException $e) {
+            throw new BusinessErrorException($e->getMessages());
+        }
     }
 }
