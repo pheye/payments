@@ -150,6 +150,8 @@ class PaymentService implements PaymentServiceContract
         $plans = Plan::all();
         Stripe::setApiKey($gateway->config['secret_key']);
         foreach ($plans as $plan) {
+            if (!$plan->amount)
+                continue;
             // 如果已经存在就对比，发现不一致就删除，再创建
             $planDesc = [
                 "amount" => $plan->amount * 100,

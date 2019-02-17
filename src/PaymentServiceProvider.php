@@ -91,6 +91,7 @@ class PaymentServiceProvider extends ServiceProvider
                         'publishable_key' => $config->config['publishable_key'],
                         'secret_key' => $config->config['secret_key'],
                         'payum.extension.create_customer' => new \Pheye\Payments\Payum\Stripe\Extensions\CreateCustomerExtension(),
+                        'payum.action.capture' => new \Pheye\Payments\Payum\Stripe\Action\CaptureAction(),
                     ]);
                     break;
                 }

@@ -136,6 +136,9 @@ class SubscriptionController extends PayumController
         } else {
             $plan = Plan::where('name', $req->input('plan_name'))->first();
         }
+        if (!$plan) {
+            throw new BusinessErrorException("plan not found");
+        }
         $setupFee = $plan->setup_fee;
         $amount = $plan->amount;
         if ($setupFee == 0 && $amount == 0) {
@@ -492,68 +495,67 @@ class SubscriptionController extends PayumController
     }
 
     /**
-     * 使用stripe支持
+     * 使用stripe支付，需要注意的是，stripe既支持使用新信用卡支付，也支持使用已保存的信用卡信息支付
      *
-     * 支持循环扣款
+     * Stripe支持一次性扣款和循环扣款
      */
     protected function payByStripe(Subscription $subscription, Request &$req, Plan &$plan, $gatewayConfig)
     {
-        if (!$req->has('stripeToken')) {
+        if (!$req->has('stripeToken') && !$req->has('customer')) {
             throw new BusinessErrorException('invalid credit card');
         }
 
         $user = Auth::user();
+        $onetime = $req->input('onetime', false);
 
         $storage = $this->getPayum()->getStorage(Payment::class);
         $payment = $storage->create();
         $payment->setNumber($this->generateNo());
         $payment->setCurrencyCode($plan->currency);
-        $payment->setTotalAmount(0);
+        $payment->setTotalAmount($subscription->setup_fee * 100);
         $payment->setDescription($plan->display_name);
         $payment->setClientId($user->id);
         $payment->setClientEmail($user->email);
-        if ($req->input('onetime', 0)) {
-            $payment->setDetails(
-                new \ArrayObject(
-                    [
-                        'amount' => ($subscription->setup_fee) * 100,
-                        'currency' => $plan->currency,
-                        'card' => $req->stripeToken,
-                        'local' => [
-                            'save_card' => true,
-                            'customer' => [
-                                'email' => $user->email,
-                                'description' => "customer from " . config('app.name')
-                            ],
-                            'subscription_id' => $subscription->id,
-                            'user_id' => $user->id,
-                            'onetime' => true
-                        ],
-                    ]
-                )
-            );
-        } else {
-            $payment->setDetails(
-                new \ArrayObject(
-                    [
-                        'amount' => ($subscription->setup_fee) * 100,
-                        'currency' => $plan->currency,
-                        'card' => $req->stripeToken,
-                        'local' => [
-                            'save_card' => true,
-                            'customer' => [
-                                'plan' => $plan->name,
-                                'email' => $user->email,
-                                'description' => "customer from " . config('app.name')
-                            ],
-                            'subscription_id' => $subscription->id,
-                            'user_id' => $user->id,
-                            'onetime' => false
-                        ],
-                    ]
-                )
-            );
+        // 额外的信息，不会传递到stripe
+        $local = [
+            'subscription_id' => $subscription->id,
+            'user_id' => $user->id,
+            'onetime' => $onetime
+        ];
+        // 有信用卡信息就保存信息信用卡信息
+        if ($req->input('stripeToken')) {
+            $local['save_card'] = true;
+            $local['customer'] = [
+                'email' => $user->email,
+                'description' => "customer from " . config('app.name')
+            ];
+
+            // 循环扣款必须指明要使用的plan(plan应该提前同步到stripe)
+            // 使用信用卡必须指定
+            if (!$onetime) {
+                $local['customer']['plan'] = $plan->name;
+            }
         }
+
+        $details = new \ArrayObject(
+                    [
+                        'amount' => ($subscription->setup_fee) * 100,
+                        'currency' => $plan->currency,
+                        'local' => $local,
+                    ]
+                );
+        // 优先使用已有的卡片
+        if ($req->input('customer')) {
+            $details['customer'] = $req->customer;
+            if (!$onetime) {
+                $details['items'] = [
+                    ['plan' => $plan->name]
+                ];
+            }
+        } else {
+            $details['card'] = $req->stripeToken;
+        }
+        $payment->setDetails($details);
         $storage->update($payment);
 
         $captureToken = $this->getPayum()->getTokenFactory()->createCaptureToken($gatewayConfig->gateway_name, $payment, 'stripe_done');
@@ -690,18 +692,27 @@ class SubscriptionController extends PayumController
         $gateway->execute($status = new GetHumanStatus($token));
         $payment = $status->getFirstModel();
 
-        $details = $payment->getDetails();
-        if ($status->getValue() !== 'captured') {
-            $model = $status->getModel();
+        $statusValue = $status->getValue();
+        $model = $status->getModel();
+        if ($statusValue == 'unknown' && $model['status'] == 'active') {
+            $statusValue = 'captured';
+        }
+        if ($statusValue !== 'captured') {
+            dd($status);
             throw new BusinessErrorException("invalid status:  {$status->getValue()}");
         }
         // 这整个流程应该是原子操作，应该放在队列中
         $user = User::find($payment->getClientId());
         $details = $payment->getDetails();
+        /* dd($details); */
 
         $subscription = Subscription::find($details['local']['subscription_id']);
         if (!$details['local']['onetime']) {
-            $subscription->agreement_id = $details['local']['customer']['subscriptions']['data'][0]['id'];
+            if (isset($details['local']['customer'])) {
+                $subscription->agreement_id = $details['local']['customer']['subscriptions']['data'][0]['id'];
+            } else {
+                $subscription->agreement_id = $details['id'];
+            }
         }
         $subscription->quantity = 1;
         $subscription->status = Subscription::STATE_PAYED;
@@ -709,12 +720,12 @@ class SubscriptionController extends PayumController
         $subscription->save();
 
         $ourPayment = new OurPayment();
-        switch ($status->getValue()) {
+        switch ($statusValue) {
         case 'captured':
             $ourPayment->status = OurPayment::STATE_COMPLETED;
             break;
         default:
-            $ourPayment->status = $status->getValue();
+            $ourPayment->status = $statusValue;
         }
 
         $ourPayment->client_id = $payment->getClientId();
