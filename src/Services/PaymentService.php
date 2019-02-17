@@ -807,6 +807,7 @@ class PaymentService implements PaymentServiceContract
         $gatewayConfig = $subscription->gatewayConfig;
 
         if ($gatewayConfig->factory_name === GatewayConfig::FACTORY_STRIPE) {
+            Stripe::setApiKey($gatewayConfig->config['secret_key']);
             $stripeSub = \Stripe\Subscription::retrieve($subscription->agreement_id);
             $res = $stripeSub->cancel();
             if ($res["status"] == \Stripe\Subscription::STATUS_CANCELED) {
