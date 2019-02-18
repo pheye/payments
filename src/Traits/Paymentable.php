@@ -30,7 +30,11 @@ trait Paymentable
      */
     public function getEffectiveSub()
     {
-        $subs = $this->subscriptions()->where('status', '<>', Subscription::STATE_CREATED)->orderBy('created_at', 'desc')->get();
+        $subs = $this->subscriptions()
+            ->where('status', '<>', Subscription::STATE_CREATED)
+            ->whereNotNull('agreement_id')
+            ->orderBy('created_at', 'desc')
+            ->get();
         $baseSub = null;
         // 有效订阅未必是最后一条，比如用户取消当前订阅，购买新订阅，但是扣款失败。这时没有活动订阅，有效订阅仍然是前一个。
         for ($i = 0; $i < count($subs); ++$i) {

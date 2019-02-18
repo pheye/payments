@@ -4,7 +4,6 @@ namespace Pheye\Payments\Services;
 use Illuminate\Support\Collection;
 use Pheye\Payments\Contracts\PaymentService as PaymentServiceContract;
 use Pheye\Payments\Models\Plan;
-use Pheye\Payments\Models\Role;
 use Pheye\Payments\Models\Payment;
 use Pheye\Payments\Models\Subscription;
 use Pheye\Payments\Models\Refund;
@@ -901,7 +900,29 @@ class PaymentService implements PaymentServiceContract
         $paypalService = $this->getPaypalService();
         $gatewayConfig = $payment->subscription->gatewayConfig;
         $refunded = false;
-        if ($gatewayConfig->factory_name === GatewayConfig::FACTORY_PAYPAL_EXPRESS_CHECKOUT) {
+
+        if ($gatewayConfig->factory_name === GatewayConfig::FACTORY_STRIPE) { 
+            $id = $payment->details['id'];
+            if (strpos($id, 'sub_') !== FALSE) {
+                $refunded = true;
+
+            } else {
+                Stripe::setApiKey($gatewayConfig->config['secret_key']);
+                $r = \Stripe\Refund::create([
+                    'charge' => $payment->details['id'],
+                    'amount' => $refund->amount * 100
+                ]);
+                Log::info('stripe refunded', ['refund' => $r]);
+                if ($r['status'] == 'succeeded') {
+                    $refunded = true;
+                }
+            }
+            if ($refunded) {
+                $refund->status = Refund::STATE_ACCEPTED;
+                $refund->save();
+                $refund->payment->client->fixInfoByPayments();
+            }
+        } else if ($gatewayConfig->factory_name === GatewayConfig::FACTORY_PAYPAL_EXPRESS_CHECKOUT) {
 
             $payum = app('payum');
             $model = [];
