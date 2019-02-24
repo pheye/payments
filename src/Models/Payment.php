@@ -94,4 +94,9 @@ class Payment extends BasePayment
     {
         return str_replace('_', ' ', $this->subscription->plan);
     }
+
+    public function scopeCompleted($query)   
+    {                                        
+        return $query->where('status', self::STATE_COMPLETED);                            
+    } 
 }
