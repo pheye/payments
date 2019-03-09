@@ -11,6 +11,13 @@ class Refund extends Model
     const STATE_ACCEPTED = "accepted";
     const STATE_REJECTED = "rejected";
 
+    const STATUS = [
+        self::STATE_CREATED => "Created",
+        self::STATE_PENDING => "Pending",
+        self::STATE_ACCEPTED => "Accepted",
+        self::STATE_REJECTED => "Rejected",
+    ];
+
     public function payment()
     {
         return $this->belongsTo(Payment::class);

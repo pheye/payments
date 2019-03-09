@@ -13,6 +13,15 @@ class GatewayConfig extends Model
     const FACTORY_OFFLINE = "offline";
     const FACTORY_ALIPAY = "alipay";
 
+    const FACTORY = [
+        self::FACTORY_PAYPAL_EXPRESS_CHECKOUT => "Paypal EC",
+        self::FACTORY_PAYPAL_REST => "Paypal REST",
+        self::FACTORY_STRIPE => "Stripe",
+        self::FACTORY_ALIPAY => "Alipay",
+        self::FACTORY_OFFLINE => "Offline",
+        /* self::FACTORY_ZHONGWAIBAO => __("Zhongwaibao"), */
+    ];
+
     protected $casts = [
         'config' => 'json'
     ];
