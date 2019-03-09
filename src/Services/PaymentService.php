@@ -22,7 +22,6 @@ use Payum\Paypal\ExpressCheckout\Nvp\Request\Api\TransactionSearch;
 use Pheye\Payments\Exceptions\BusinessErrorException;
 use Mpdf\Mpdf;
 use Storage;
-use Voyager;
 use Log;
 use File;
 use Payum\Core\Request\Cancel;
@@ -77,15 +76,19 @@ class PaymentService implements PaymentServiceContract
 
     /**
      * 获取网关的顺序：
-     * 1. Voyager::setting('current_gateway')是否是Paypal REST网关
+     * 1. config('payment.current_gateway')是否是Paypal REST网关
      * 2. 不然就获取第1个Paypal REST配置
      * 3. 不然就黑夜`config/payment.php`的配置
+     *
+     * @warning  原来是根据Voyager::setting('current_gateway')做判断，这将导致依赖Voyayer包，
+     * 这是一个不好的做法，应该确保去除依赖。
+     * 如果想实现在后台配置默认网关，可考虑在AppServiceProvider启动阶段，通过对config('payment.current_gateway')改写实现
      */
     protected function getPaypalService($config = null, $force = false)
     {
         if (!$this->paypalService || $force) {
             if (!$config) {
-                $gatewayConfig = GatewayConfig::where('gateway_name', Voyager::setting('current_gateway'))->first();
+                $gatewayConfig = GatewayConfig::where('gateway_name', config('payment.current_gateway'))->first();
                 if (!$gatewayConfig) {
                     $gatewayConfig = GatewayConfig::where('factory_name', GatewayConfig::FACTORY_PAYPAL_REST)->first();
                 }

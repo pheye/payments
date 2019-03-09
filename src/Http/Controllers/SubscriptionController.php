@@ -8,8 +8,8 @@ use Illuminate\Support\Facades\Auth;
 use Log;
 use App\User;
 use App\Webhook;
-use App\ActionLog;
-use TCG\Voyager\Models\Role;
+/* use App\ActionLog; */
+use App\Role;
 use Pheye\Payments\Models\Plan;
 use Pheye\Payments\Models\Subscription;
 use Pheye\Payments\Models\GatewayConfig;
@@ -28,16 +28,14 @@ use Payum\Core\Model\CreditCard;
 use Payum\Core\Model\Payment;
 use Pheye\Payments\Models\Payment as OurPayment;
 use Pheye\Payments\Contracts\PaymentService;
-use App\Jobs\SyncPaymentsJob;
-use App\Jobs\SyncSubscriptionsJob;
-use App\Jobs\LogAction;
+use Pheye\Payments\Jobs\SyncPaymentsJob;
+/* use App\Jobs\LogAction; */
 use GuzzleHttp\Client;
 use App\Jobs\SendUserMail;
 use App\Jobs\SendUnsubscribeMail;
 use Pheye\Payments\Exceptions\BusinessErrorException;
 use Pheye\Payments\Events\PayedEvent;
 use Pheye\Payments\Jobs\GenerateInvoiceJob;
-use Voyager;
 use Cache;
 use Illuminate\Support\Collection;
 use Yansongda\Pay\Pay;
@@ -165,7 +163,7 @@ class SubscriptionController extends PayumController
         if ($req->has('gateway_name')) {
             $gatewayConfig = GatewayConfig::where('gateway_name', $req->gateway_name)->first();
         } else {
-            $gatewayConfig = GatewayConfig::where('gateway_name', Voyager::setting('current_gateway') ? : config('payment.current_gateway'))->first();
+            $gatewayConfig = GatewayConfig::where('gateway_name', config('payment.current_gateway'))->first();
         }
         if (!$gatewayConfig) {
             // TODO: 统一定向到某个错误页面或者前端需要知道如何读取Flash数据
@@ -324,7 +322,7 @@ class SubscriptionController extends PayumController
     {
         /* echo "processing...don't close the window."; */
         if ($request->success == 'false') {
-            return redirect(Voyager::setting('payed_redirect'));
+            return redirect(config('payment.payed_redirect'));
         }
         $subscription = Subscription::where('agreement_id', $request->token)->first();
         if (!($subscription instanceof Subscription)) {
@@ -342,7 +340,7 @@ class SubscriptionController extends PayumController
         $info = $payer->getPayerInfo();
         // 中途取消的情况下返回profile页面
         if ($agreement == null) {
-            return redirect(Voyager::setting('payed_redirect'));
+            return redirect(config('payment.payed_redirect'));
         }
         $detail = $agreement->getAgreementDetails();
         // abort(401, "error on agreement");
@@ -376,7 +374,7 @@ class SubscriptionController extends PayumController
         dispatch((new SyncPaymentsJob($subscription))->delay(Carbon::now()->addSeconds(30)));
 
         // 更改七日内的统计为guzzle 同步请求
-        return redirect(Voyager::setting('payed_redirect'));
+        return redirect(config('payment.payed_redirect'));
     }
 
     /**
@@ -643,7 +641,7 @@ class SubscriptionController extends PayumController
         }
 
         if (OurPayment::where('number', $detail['TRANSACTIONID'])->count() > 0) {
-            return redirect(Voyager::setting('payed_redirect') ? : '/');
+            return redirect(config('payment.payed_redirect') ? : '/');
         }
         $subscriptionId = $detail['local']['subscription_id'];
         $subscription = Subscription::where('status', Subscription::STATE_CREATED)->where('id', $subscriptionId)->first();
@@ -677,7 +675,7 @@ class SubscriptionController extends PayumController
 
         dispatch(new GenerateInvoiceJob(new Collection([$payment])));//入参类型为Collection  
         event(new PayedEvent($payment));
-        $redirectUrl = Voyager::setting('payed_redirect') ? : '/';
+        $redirectUrl = config('payment.payed_redirect') ? : '/';
         if ($request->expectsJson()) {
             return response()->json(['redirect' => $redirectUrl]);
         }
@@ -743,7 +741,7 @@ class SubscriptionController extends PayumController
         $this->getPayum()->getHttpRequestVerifier()->invalidate($token);
         dispatch(new GenerateInvoiceJob(new Collection([$ourPayment])));//入参类型为Collection  
         event(new PayedEvent($ourPayment));
-        $redirectUrl = Voyager::setting('payed_redirect') ? : (config('payment.payed_redirect') ? :'/');
+        $redirectUrl = config('payment.payed_redirect');
         if ($request->expectsJson()) {
             return response()->json(['redirect' => $redirectUrl]);
         }
@@ -950,7 +948,7 @@ class SubscriptionController extends PayumController
 
         dispatch(new GenerateInvoiceJob(new Collection([$payment])));//入参类型为Collection  
         event(new PayedEvent($payment));
-        $redirectUrl = Voyager::setting('payed_redirect') ? : '/';
+        $redirectUrl = config('payment.payed_redirect') ? : '/';
         if ($req->expectsJson()) {
             return response()->json(['redirect' => $redirectUrl]);
         }
@@ -1029,7 +1027,7 @@ class SubscriptionController extends PayumController
             dispatch(new GenerateInvoiceJob(new Collection([$payment])));//入参类型为Collection  
             event(new PayedEvent($payment));
         }
-        $redirectUrl = Voyager::setting('payed_redirect') ? : '/';
+        $redirectUrl = config('payment.payed_redirect') ? : '/';
         if ($request->expectsJson()) {
             return response()->json(['redirect' => $redirectUrl]);
         }
@@ -1086,7 +1084,7 @@ class SubscriptionController extends PayumController
 
         dispatch(new GenerateInvoiceJob(new Collection([$payment])));//入参类型为Collection  
         event(new PayedEvent($payment));
-        $redirectUrl = Voyager::setting('payed_redirect') ? : '/';
+        $redirectUrl = config('payment.payed_redirect') ? : '/';
         if ($request->expectsJson()) {
             return response()->json(['redirect' => $redirectUrl]);
         }
