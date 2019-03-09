@@ -18,5 +18,8 @@ return [
         'save_path' => env('INVOICE_SAVE_PATH')
     ],
     'current_gateway' => env('CURRENT_GATEWAY', 'paypal_ec'),
-    'payed_redirect' => env('PAYED_REDIRECT', '/')
+    'payed_redirect' => env('PAYED_REDIRECT', '/'),
+    'models' => [
+        'role' => 'App\Role',
+    ]
 ];

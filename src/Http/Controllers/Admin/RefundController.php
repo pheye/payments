@@ -6,8 +6,6 @@ use Pheye\Payments\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Pheye\Payments\Models\Refund;
 use Pheye\Payments\Contracts\PaymentService;
-use TCG\Voyager\Traits\AlertsMessages;
-use Voyager;
 use Pheye\Payments\Notifications\RefundNotification;
 
 class RefundController extends Controller
@@ -42,7 +40,6 @@ class RefundController extends Controller
 
     public function rejectRefund($id)
     {
-        Voyager::canOrFail('edit_refunds');
         $refund = Refund::find($id);
         if (!$refund) {
             return back()->with([

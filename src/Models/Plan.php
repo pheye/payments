@@ -11,6 +11,6 @@ class Plan extends Model
 
     public function role()
     {
-        return $this->belongsTo('TCG\Voyager\Models\Role');
+        return $this->belongsTo(config('payment.models.role', 'App\Role'));
     }
 }
