@@ -778,8 +778,8 @@ class SubscriptionController extends PayumController
             return ['code' => -1, 'desc' => "$sid not found"];
         }
         // 如果扣款失败，会自动被取消，因此同步的处理只需要处理pending的情况
-        $this->paymentService->syncSubscriptions([], $sub);
-        $this->paymentService->syncPayments([], $sub);
+        $this->paymentService->syncSubscriptions($sub);
+        $this->paymentService->syncPayments($sub);
         /* if (Carbon::now()->diffInSeconds($sub->updated_at, true) > 30 && $sub->status ==  Subscription::STATE_PENDING) { */
         /*     $this->paymentService->cancel($sub); */
         /*     dispatch(new LogAction(ActionLog::ACTION_AUTO_CANCEL, $sub->toJson(), "", $user->id)); */

@@ -276,7 +276,7 @@ class PaymentService implements PaymentServiceContract
      * {@inheritDoc}
      * @todo 同步远程的Paypal, stripe
      */
-    public function syncSubscriptions(array $gateways = [], $subscription)
+    public function syncSubscriptions($subscription = null)
     {
         // 正常应该是从远程同步，以确定status状态，从本地同步是错误的方法
         // 特别是frequency_interval和frequency,它们的目的就是为了防止本地Plan修改后
@@ -822,7 +822,7 @@ class PaymentService implements PaymentServiceContract
             if ($res) {
                 $isOk = true;
             }
-            $this->syncSubscriptions([], $subscription);
+            $this->syncSubscriptions($subscription);
         } 
 
         if ($gatewayConfig->factory_name == GatewayConfig::FACTORY_PAYPAL_EXPRESS_CHECKOUT) {

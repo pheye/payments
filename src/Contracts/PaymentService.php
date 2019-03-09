@@ -72,10 +72,9 @@ interface PaymentService
      * 2. 一些新增字段需要根据计划状态填充初始值
      * 3. 一个用户可能有多个订阅，除用户设置的订阅外，其他全部自动取消
      * 4. 对7天内即可到期的活动订阅推到队列，在到期前5小时执行syncPayments(这边的时间设计是比较随意的，只要订单完成后，过期时间前即可）
-     * @param Array $gateways 为空值时表示同步所有计划;否则同步指定的计划。每个数组项应从GATEWAY_*中取值。
      * @param mixed $subscription 指定同步的订阅，如果指明该参数将只同步该订阅
      */
-    public function syncSubscriptions(Array $gateways, $subscription);
+    public function syncSubscriptions($subscription = null);
 
 
     /**
