@@ -7,6 +7,11 @@ use App\User;
 
 class Coupon extends Model
 {
+    protected $casts = [
+        'start' => 'datetime',
+        'end' => 'datetime'
+    ];
+
     //
     public function subscriptions()
     {
