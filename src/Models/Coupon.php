@@ -7,6 +7,12 @@ use App\User;
 
 class Coupon extends Model
 {
+    const TYPE_PERCENTAGE = 'Percentage';
+    const TYPE_FIXED_AMOUNT = 'Fixed Amount';
+
+    // 折扣类型， 0 为百分比， 1 为固定金额
+    const TYPE = [self::TYPE_PERCENTAGE, self::TYPE_FIXED_AMOUNT];
+
     protected $casts = [
         'start' => 'datetime',
         'end' => 'datetime'

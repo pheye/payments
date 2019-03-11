@@ -8,7 +8,11 @@ use Carbon\Carbon;
 class Subscription extends Model
 {
     protected $casts = [
-        'details' => 'array'
+        'details'           =>  'array',
+        'trial_ends_at'     =>  'datetime',
+        'ends_at'           =>  'datetime',
+        'next_billing_date' =>  'datetime',
+        'canceled_at'       =>  'datetime'
     ];
 
     protected $hidden = ['details'];
@@ -57,6 +61,18 @@ class Subscription extends Model
      * 挂起订阅时的状态
      */
     const STATE_PENDING = "pending";
+
+    // 状态 key与对应的值
+    const STATE = [
+        self::STATE_CREATED     =>  'Created',
+        self::STATE_SUBSCRIBED  =>  'Subscribed',
+        self::STATE_PAYED       =>  'Payed',
+        self::STATE_EXPIRED     =>  'Expired',
+        self::STATE_CANCLED     =>  'Canceled',
+        self::STATE_SUBSCRIBED  =>  'Suspended',
+        self::STATE_FAILED      =>  'Failed',
+        self::STATE_PENDING     =>  'Pending'
+    ];
 
     /**
      * 默认的tag值

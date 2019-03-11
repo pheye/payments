@@ -14,6 +14,17 @@ class Payment extends BasePayment
     const STATE_REFUNDED = "refunded";
     const STATE_REFUNDING = "refunding";
 
+
+    // 状态key值与value对应
+    const STATE = [
+        self::STATE_CREATED   =>  'Created',
+        self::STATE_COMPLETED =>  'Completed',
+        self::STATE_PENDING   =>  'Pending',
+        self::STATE_FAILED    =>  'Failed',
+        self::STATE_REFUNDED  =>  'Refunded',
+        self::STATE_REFUNDING =>  'Refunding'
+    ];
+
     protected $table = "payments";
     protected $fillable = ['number'];
     protected $appends = ['gateway', 'start_date', 'end_date', 'is_effective', 'plan'];
