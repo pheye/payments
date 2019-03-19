@@ -163,6 +163,11 @@ class Subscription extends Model
         return Plan::where('name', $this->plan)->first();
     }
 
+    public function plan()
+    {
+        return $this->belongsTo(Plan::class, 'plan', 'name');
+    }
+
     /**
      * 根据订阅计算出天数
      */
