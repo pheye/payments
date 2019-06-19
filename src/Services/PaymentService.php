@@ -1166,7 +1166,8 @@ class PaymentService implements PaymentServiceContract
         $details = $payment->details;//paypal的details全部都是string类型
         $data->paymentAccount = $payment->buyer_email;// payment account
         $data->subscription = $payment->subscription;
-        $time = Carbon::parse($payment->created)->setTimezone(Carbon::now()->tz);// 需要转换时区
+        $time = (new Carbon($payment->created_at))->setTimezone(Carbon::now()->tz);// 需要转换时区                                                                                   
+
 
         // 目标时间格式 1 September 2017 at 5:16:04 p.m. HKT
         $yearAndMonth = $time->format("j F Y");
