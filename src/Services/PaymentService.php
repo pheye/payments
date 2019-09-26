@@ -585,7 +585,7 @@ class PaymentService implements PaymentServiceContract
         $model['STARTDATE'] = Carbon::now()->subYears(5)->toIso8601String();
         $gateway->execute($status = new TransactionSearch($model));
         $model = $status->getFirstModel();
-        $idx = 1;
+        $idx = 0;
         Log::debug('test', ['data' => (array)$model]);
         while (isset($model["L_TRANSACTIONID{$idx}"])) {
             if (!isset($model["L_EMAIL{$idx}"])) {
