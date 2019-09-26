@@ -81,6 +81,21 @@ class Payment extends BasePayment
         return $carbon->toDateTimeString();
     }
 
+    public function setCreatedAtAttribute($value)
+    {
+        $carbon = new \Carbon\Carbon($value);
+        $carbon->tz = config('app.timezone');
+        $this->attributes['created_at'] = $carbon->toDateTimeString();
+    }
+
+    public function setUpdatedAtAttribute($value)
+    {
+        $carbon = new \Carbon\Carbon($value);
+        $carbon->tz = config('app.timezone');
+        $this->attributes['updated_at'] = $carbon->toDateTimeString();
+    }
+
+
     /**
      * 当前Payment是否生效，判断依据：
      * 1. 状态为完成或refunding
